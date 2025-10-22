@@ -1,10 +1,14 @@
 // ============================================
 // FILE: app/page.tsx
 // ============================================
+'use client';
+
 import React from 'react';
-import { Upload, Shield, Zap, Lock } from 'lucide-react';
+import Link from 'next/link';
+import { UploadIcon, LockClosedIcon, LightningBoltIcon } from '@radix-ui/react-icons';
 import FeatureCard from '@/components/general/FeatureCard';
 import Step from '@/components/general/Step';
+
 
 export default function HomePage() {
   return (
@@ -23,9 +27,12 @@ export default function HomePage() {
             Experience true ownership with decentralized storage.
           </p>
           <div className="flex gap-4 justify-center">
-            <button className="px-8 py-3 bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-xl font-medium hover:shadow-lg transition-all duration-200">
+            <Link
+              href="/login"
+              className="px-8 py-3 bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-xl font-medium hover:shadow-lg transition-all duration-200 inline-block"
+            >
               Get Started
-            </button>
+            </Link>
             <button className="px-8 py-3 bg-white border-2 border-gray-300 text-gray-700 rounded-xl font-medium hover:border-gray-400 transition-all duration-200">
               Learn More
             </button>
@@ -39,24 +46,25 @@ export default function HomePage() {
           <h2 className="text-3xl font-bold text-center text-gray-900 mb-12">
             Why Choose Sui File Upload?
           </h2>
+          {/* <ConnectButton /> */}
           <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8">
             <FeatureCard
-              icon={<Shield className="w-8 h-8 text-blue-500" />}
+              icon={<LockClosedIcon className="w-8 h-8 text-blue-500" />}
               title="Secure Storage"
               description="Your files are encrypted and stored securely on the blockchain"
             />
             <FeatureCard
-              icon={<Lock className="w-8 h-8 text-cyan-500" />}
+              icon={<LockClosedIcon className="w-8 h-8 text-cyan-500" />}
               title="True Ownership"
               description="You maintain complete control and ownership of your data"
             />
             <FeatureCard
-              icon={<Zap className="w-8 h-8 text-blue-500" />}
+              icon={<LightningBoltIcon className="w-8 h-8 text-blue-500" />}
               title="Fast & Efficient"
               description="Leveraging Sui's high-performance blockchain technology"
             />
             <FeatureCard
-              icon={<Upload className="w-8 h-8 text-cyan-500" />}
+              icon={<UploadIcon className="w-8 h-8 text-cyan-500" />}
               title="Easy Upload"
               description="Simple interface for uploading and managing your files"
             />
@@ -97,11 +105,14 @@ export default function HomePage() {
             Ready to Get Started?
           </h2>
           <p className="text-lg mb-8 opacity-90">
-            Connect your wallet and start uploading files securely today
+            Connect your wallet and start creating secure meetings today
           </p>
-          <button className="px-8 py-3 bg-white text-blue-600 rounded-xl font-medium hover:shadow-lg transition-all duration-200">
+          <Link
+            href="/login"
+            className="px-8 py-3 bg-white text-blue-600 rounded-xl font-medium hover:shadow-lg transition-all duration-200 inline-block"
+          >
             Connect Wallet
-          </button>
+          </Link>
         </div>
       </section>
     </div>

@@ -2,21 +2,28 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
-import { Menu, X } from 'lucide-react';
-import ConnectWalletModal from './ConnectWalletModal';
+import { useRouter } from 'next/navigation';
+import { HamburgerMenuIcon, Cross2Icon } from '@radix-ui/react-icons';
+import { useCurrentAccount } from '@mysten/dapp-kit';
 
 export default function Navbar() {
-    const [isModalOpen, setIsModalOpen] = useState(false);
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-    const [isConnected, setIsConnected] = useState(false);
+    const router = useRouter();
+    const currentAccount = useCurrentAccount();
 
     const handleConnect = () => {
-        setIsModalOpen(true);
+        router.push('/login');
     };
 
     const handleDisconnect = () => {
-        setIsConnected(false);
         // TODO: Implement actual disconnect logic
+        // For now, just redirect to home
+        router.push('/');
+    };
+
+    // Format address for display
+    const formatAddress = (address: string) => {
+        return `${address.slice(0, 6)}...${address.slice(-4)}`;
     };
 
     return (
@@ -58,11 +65,11 @@ export default function Navbar() {
 
                         {/* Connect Wallet Button */}
                         <div className="hidden md:block">
-                            {isConnected ? (
+                            {currentAccount ? (
                                 <div className="flex items-center gap-3">
                                     <div className="px-4 py-2 bg-green-50 border border-green-200 rounded-lg">
                                         <span className="text-sm font-medium text-green-700">
-                                            0x1234...5678
+                                            {formatAddress(currentAccount.address)}
                                         </span>
                                     </div>
                                     <button
@@ -88,9 +95,9 @@ export default function Navbar() {
                             className="md:hidden p-2 text-gray-600 hover:text-gray-900"
                         >
                             {isMobileMenuOpen ? (
-                                <X className="w-6 h-6" />
+                                <Cross2Icon className="w-6 h-6" />
                             ) : (
-                                <Menu className="w-6 h-6" />
+                                <HamburgerMenuIcon className="w-6 h-6" />
                             )}
                         </button>
                     </div>
@@ -117,11 +124,11 @@ export default function Navbar() {
                                 >
                                     Documentation
                                 </Link>
-                                {isConnected ? (
+                                {currentAccount ? (
                                     <>
                                         <div className="px-4 py-2 bg-green-50 border border-green-200 rounded-lg">
                                             <span className="text-sm font-medium text-green-700">
-                                                0x1234...5678
+                                                {formatAddress(currentAccount.address)}
                                             </span>
                                         </div>
                                         <button
@@ -144,17 +151,6 @@ export default function Navbar() {
                     )}
                 </div>
             </nav>
-
-            {/* Connect Wallet Modal */}
-            <ConnectWalletModal
-                isOpen={isModalOpen}
-                onClose={() => setIsModalOpen(false)}
-                onConnect={(method) => {
-                    setIsConnected(true);
-                    setIsModalOpen(false);
-                    console.log('Connected via:', method);
-                }}
-            />
         </>
     );
 }

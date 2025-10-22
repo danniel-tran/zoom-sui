@@ -1,0 +1,160 @@
+
+'use client';
+
+import React, { useState, useEffect } from 'react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { ArrowLeftIcon, GlobeIcon, CardStackIcon, UpdateIcon, LockClosedIcon, LightningBoltIcon, ExclamationTriangleIcon } from '@radix-ui/react-icons';
+import { ConnectButton, ConnectModal, useCurrentAccount, useWallets } from '@mysten/dapp-kit';
+
+export default function LoginPage() {
+    const [isZkLoading, setIsZkLoading] = useState(false);
+    const [error, setError] = useState('');
+    const [openWallet, setOpenWallet] = useState(false);
+    const router = useRouter();
+
+    const currentAccount = useCurrentAccount();
+    const wallets = useWallets();
+
+    // Check if wallets are available
+    const hasWallets = wallets && wallets.length > 0;
+
+    useEffect(() => {
+        if (currentAccount) {
+            router.push('/');
+        }
+    }, [currentAccount, router]);
+
+    const handleZkLogin = async () => {
+        setIsZkLoading(true);
+        setError('');
+        try {
+            // TODO: Implement @mysten/zklogin integration
+            await new Promise(resolve => setTimeout(resolve, 1500));
+            // Redirect to main app after successful login
+            router.push('/');
+        } catch (err) {
+            setError('Failed to authenticate with Google');
+            console.error(err);
+        } finally {
+            setIsZkLoading(false);
+        }
+    };
+
+    return (
+        <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-cyan-50 flex items-center justify-center p-4">
+            <div className="w-full max-w-md">
+                {/* Back Button */}
+                <div className="mb-8">
+                    <Link
+                        href="/"
+                        className="inline-flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors"
+                    >
+                        <ArrowLeftIcon className="w-4 h-4" />
+                        <span className="text-sm font-medium">Back to Home</span>
+                    </Link>
+                </div>
+
+                {/* Main Card */}
+                <div className="bg-white rounded-2xl shadow-xl p-8">
+                    {/* Header */}
+                    <div className="text-center mb-8">
+                        <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-2xl mb-6">
+                            <span className="text-white text-2xl font-bold">S</span>
+                        </div>
+                        <h1 className="text-3xl font-bold text-gray-900 mb-2">
+                            Welcome to SuiMeet
+                        </h1>
+                        <p className="text-gray-500">
+                            Connect your wallet to start creating secure, decentralized meetings
+                        </p>
+                    </div>
+
+                    {/* Login Options */}
+                    <div className="space-y-4 mb-8">
+                        {/* zkLogin Button */}
+                        <button
+                            onClick={handleZkLogin}
+                            disabled={isZkLoading}
+                            className="w-full group relative overflow-hidden bg-white border-2 border-gray-300 rounded-xl p-4 hover:bg-gray-50 hover:border-gray-400 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            <div className="flex items-center gap-4">
+                                <div className="flex-shrink-0 w-12 h-12 bg-red-50 rounded-xl flex items-center justify-center group-hover:bg-red-100 transition-colors">
+                                    {isZkLoading ? (
+                                        <UpdateIcon className="w-6 h-6 text-red-500 animate-spin" />
+                                    ) : (
+                                        <GlobeIcon className="w-6 h-6 text-red-500" />
+                                    )}
+                                </div>
+                                <div className="flex-grow text-left">
+                                    <h3 className="font-semibold text-gray-900 mb-1">
+                                        {isZkLoading ? 'Connecting...' : 'Continue with Google'}
+                                    </h3>
+                                </div>
+                                <div className="flex-shrink-0">
+                                    <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                                </div>
+                            </div>
+                        </button>
+
+                        {/* Wallet Connect Button */}
+                        <ConnectModal
+                            trigger={
+                                <button >
+                                    <div className="w-full bg-gray-100 border-2 border-gray-300 rounded-xl p-4">
+                                        <div className="flex items-center gap-4">
+                                            Connect Wallet
+                                        </div>
+                                    </div>
+                                </button>
+                            }
+                            open={openWallet}
+                            onOpenChange={(isOpen) => setOpenWallet(isOpen)}
+                        />
+                    </div>
+
+                    {/* Error Message */}
+                    {error && (
+                        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl">
+                            <p className="text-sm text-red-600 text-center">{error}</p>
+                        </div>
+                    )}
+
+                    {/* Features Preview */}
+                    <div className="space-y-4 pt-6 border-t border-gray-100">
+                        <h4 className="text-sm font-semibold text-gray-900 mb-3">
+                            What you'll get:
+                        </h4>
+                        <div className="space-y-3">
+                            <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 bg-blue-50 rounded-lg flex items-center justify-center">
+                                    <LockClosedIcon className="w-4 h-4 text-blue-500" />
+                                </div>
+                                <div>
+                                    <p className="text-sm font-medium text-gray-900">Secure Meetings</p>
+                                    <p className="text-xs text-gray-500">End-to-end encrypted with blockchain security</p>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 bg-cyan-50 rounded-lg flex items-center justify-center">
+                                    <LightningBoltIcon className="w-4 h-4 text-cyan-500" />
+                                </div>
+                                <div>
+                                    <p className="text-sm font-medium text-gray-900">NFT Attendance Badges</p>
+                                    <p className="text-xs text-gray-500">Mint POAPs for meeting participation</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Footer */}
+                <div className="text-center mt-8">
+                    <p className="text-xs text-gray-400">
+                        By connecting, you agree to our Terms of Service and Privacy Policy
+                    </p>
+                </div>
+            </div>
+        </div>
+    );
+}
