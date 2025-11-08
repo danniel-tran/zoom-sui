@@ -1,15 +1,27 @@
 "use client";
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from "react";
 // Simple SVG icons for microphone and video
 const MicrophoneIcon = ({ className }: { className?: string }) => (
-  <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" className={className}>
+  <svg
+    width="12"
+    height="12"
+    viewBox="0 0 12 12"
+    fill="currentColor"
+    className={className}
+  >
     <path d="M6 1a2 2 0 0 0-2 2v3a2 2 0 0 0 4 0V3a2 2 0 0 0-2-2z" />
     <path d="M3 5.5a3 3 0 0 0 6 0V5h1v.5a4 4 0 0 1-3.5 3.97V10h1.5v1h-5v-1H5V9.47A4 4 0 0 1 2 5.5V5h1v.5z" />
   </svg>
 );
 
 const VideoIcon = ({ className }: { className?: string }) => (
-  <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" className={className}>
+  <svg
+    width="12"
+    height="12"
+    viewBox="0 0 12 12"
+    fill="currentColor"
+    className={className}
+  >
     <path d="M1 2a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V3a1 1 0 0 0-1-1H1zm8 1.5l2.5 2.5L9 8.5V3.5z" />
   </svg>
 );
@@ -34,7 +46,7 @@ const VideoFeed: React.FC<Props> = ({
   isSpeaking = false,
   pinned = false,
   reaction = null,
-  heightClass = 'h-64',
+  heightClass = "h-64",
   isLocal = false,
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -43,61 +55,66 @@ const VideoFeed: React.FC<Props> = ({
 
   useEffect(() => {
     const video = videoRef.current;
-    if (!video) return;
-
-    if (stream) {
-      // Set the stream
+    if (video && stream) {
+      console.log(`[VideoFeed] Setting stream for ${label}:`, {
+        id: stream.id,
+        active: stream.active,
+        trackCount: stream.getTracks().length,
+        videoTracks: stream.getVideoTracks().length,
+        audioTracks: stream.getAudioTracks().length,
+        videoTracksEnabled: stream
+          .getVideoTracks()
+          .map((t) => ({
+            id: t.id,
+            enabled: t.enabled,
+            muted: t.muted,
+            readyState: t.readyState,
+          })),
+      });
       video.srcObject = stream;
-      
-      // Check if stream has video/audio tracks
-      const videoTracks = stream.getVideoTracks();
-      const audioTracks = stream.getAudioTracks();
-      setHasVideo(videoTracks.length > 0 && videoTracks[0].enabled);
-      setHasAudio(audioTracks.length > 0 && audioTracks[0].enabled);
 
-      // Play the video
-      video.play().catch((err) => {
-        console.error('Error playing video:', err);
-      });
-
-      // Handle track updates
-      const handleTrackEnded = () => {
-        setHasVideo(stream.getVideoTracks().some(t => t.enabled));
-        setHasAudio(stream.getAudioTracks().some(t => t.enabled));
+      // Add event listeners to debug video playback
+      const handleLoadedMetadata = () => {
+        console.log(`[VideoFeed] ${label} - Video metadata loaded, playing...`);
+        video
+          .play()
+          .catch((err) =>
+            console.error(`[VideoFeed] ${label} - Play error:`, err)
+          );
       };
 
-      stream.getTracks().forEach(track => {
-        track.addEventListener('ended', handleTrackEnded);
-        track.addEventListener('mute', handleTrackEnded);
-        track.addEventListener('unmute', handleTrackEnded);
-      });
+      const handlePlay = () =>
+        console.log(`[VideoFeed] ${label} - Video playing`);
+      const handleError = (e: Event) =>
+        console.error(`[VideoFeed] ${label} - Video error:`, e);
 
-      // Cleanup
+      video.addEventListener("loadedmetadata", handleLoadedMetadata);
+      video.addEventListener("play", handlePlay);
+      video.addEventListener("error", handleError);
+
       return () => {
-        stream.getTracks().forEach(track => {
-          track.removeEventListener('ended', handleTrackEnded);
-          track.removeEventListener('mute', handleTrackEnded);
-          track.removeEventListener('unmute', handleTrackEnded);
-        });
+        video.removeEventListener("loadedmetadata", handleLoadedMetadata);
+        video.removeEventListener("play", handlePlay);
+        video.removeEventListener("error", handleError);
       };
-    } else {
+    } else if (video && !stream) {
       video.srcObject = null;
-      setHasVideo(false);
-      setHasAudio(false);
     }
-  }, [stream]);
+  }, [stream, label]);
 
   const borderClass = pinned
-    ? 'ring-4 ring-blue-500'
+    ? "ring-4 ring-blue-500"
     : isSpeaking
-    ? 'ring-2 ring-green-400'
-    : 'ring-0';
+    ? "ring-2 ring-green-400"
+    : "ring-0";
 
   const showVideoMuted = videoMuted || !hasVideo;
   const showAudioMuted = audioMuted || !hasAudio;
 
   return (
-    <div className={`w-full ${heightClass} bg-black rounded-lg overflow-hidden relative ${borderClass}`}>
+    <div
+      className={`w-full ${heightClass} bg-black rounded-lg overflow-hidden relative ${borderClass}`}
+    >
       <video
         ref={videoRef}
         className="w-full h-full object-cover"
@@ -110,10 +127,10 @@ const VideoFeed: React.FC<Props> = ({
           <div className="text-center text-white">
             <div className="w-16 h-16 bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-2">
               <span className="text-2xl">
-                {label?.charAt(0).toUpperCase() || '?'}
+                {label?.charAt(0).toUpperCase() || "?"}
               </span>
             </div>
-            <p className="text-sm">{label || 'No video'}</p>
+            <p className="text-sm">{label || "No video"}</p>
           </div>
         </div>
       )}
