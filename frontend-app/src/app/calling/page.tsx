@@ -159,7 +159,8 @@ const CallingPage = () => {
     if (pcReady) setup();
     return () => {
       stopPolling();
-      endCall();
+      // Don't call endCall() here - it closes the PeerConnection
+      // The PeerConnection cleanup is handled by the first useEffect
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomId, role, pcReady]);
