@@ -1,0 +1,158 @@
+/**
+ * API client for SuiMeet backend
+ */
+
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
+
+interface CreateRoomRequest {
+  title: string;
+  initialParticipants: string[];
+  requireApproval: boolean;
+  walletAddress: string;
+}
+
+interface CreateRoomResponse {
+  room: {
+    id: string;
+    onchainObjectId: string;
+    title: string;
+    requireApproval: boolean;
+    createdAt: string;
+  };
+  memberships: number;
+}
+
+interface RoomDetailsResponse {
+  room: {
+    id: string;
+    onchainObjectId: string;
+    title: string;
+    requireApproval: boolean;
+    sealPolicyId: string | null;
+    startTime: string | null;
+    endTime: string | null;
+    attendanceCount: number;
+    createdAt: string;
+  };
+  owner: {
+    walletAddress: string;
+  };
+  memberships: number;
+  pendingApprovals: number;
+}
+
+interface ApproveGuestRequest {
+  guestAddress: string;
+}
+
+interface ApproveGuestResponse {
+  membership: {
+    id: string;
+    walletAddress: string;
+    status: string;
+  };
+}
+
+class ApiClient {
+  private baseUrl: string;
+
+  constructor(baseUrl: string) {
+    this.baseUrl = baseUrl;
+  }
+
+  private async request<T>(
+    endpoint: string,
+    method: string = 'GET',
+    body?: any,
+    token?: string
+  ): Promise<T> {
+    const url = `${this.baseUrl}${endpoint}`;
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    const options: RequestInit = {
+      method,
+      headers,
+    };
+
+    if (body) {
+      options.body = JSON.stringify(body);
+    }
+
+    const response = await fetch(url, options);
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+      throw new Error(error.error || `API error: ${response.status}`);
+    }
+
+    return response.json();
+  }
+
+  async createRoom(
+    data: CreateRoomRequest
+  ): Promise<CreateRoomResponse> {
+    // No token required - wallet address in body is sufficient
+    return this.request<CreateRoomResponse>(
+      '/rooms',
+      'POST',
+      data
+    );
+  }
+
+  async getRoomDetails(roomId: string, token: string): Promise<RoomDetailsResponse> {
+    return this.request<RoomDetailsResponse>(`/rooms/${roomId}`, 'GET', undefined, token);
+  }
+
+  async approveGuest(
+    roomId: string,
+    data: ApproveGuestRequest,
+    token: string
+  ): Promise<ApproveGuestResponse> {
+    return this.request<ApproveGuestResponse>(
+      `/rooms/${roomId}/approve`,
+      'POST',
+      data,
+      token
+    );
+  }
+
+  async healthCheck(): Promise<{ status: string; timestamp: string }> {
+    return this.request('/health');
+  }
+
+  // Signaling API (development-only, in-memory)
+  async postOffer(roomId: string, sdp: string) {
+    return this.request(`/signaling/${roomId}/offer`, 'POST', { sdp });
+  }
+
+  async getOffer(roomId: string): Promise<{ sdp: string; timestamp: number }> {
+    return this.request(`/signaling/${roomId}/offer`, 'GET');
+  }
+
+  async postAnswer(roomId: string, sdp: string) {
+    return this.request(`/signaling/${roomId}/answer`, 'POST', { sdp });
+  }
+
+  async getAnswer(roomId: string): Promise<{ sdp: string; timestamp: number }> {
+    return this.request(`/signaling/${roomId}/answer`, 'GET');
+  }
+
+  async postCandidate(roomId: string, candidate: any, from: 'host' | 'guest') {
+    return this.request(`/signaling/${roomId}/candidates`, 'POST', { candidate, from });
+  }
+
+  async getCandidates(roomId: string, role: 'host' | 'guest'): Promise<{ candidates: any[] }> {
+    const url = `${API_BASE_URL}/signaling/${roomId}/candidates?role=${role}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`API ${res.status}`);
+    return res.json();
+  }
+}
+
+export const apiClient = new ApiClient(API_BASE_URL);

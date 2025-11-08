@@ -1,0 +1,291 @@
+// Prisma schema for SuiMeet backend auth/session and room models
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// PostgreSQL native enums for better type safety
+enum WalletType {
+  sui
+  zklogin
+}
+
+enum SessionStatus {
+  active
+  revoked
+  expired
+}
+
+enum MembershipRole {
+  host
+  guest
+}
+
+enum MembershipStatus {
+  active
+  revoked
+}
+
+enum ApprovalStatus {
+  pending
+  approved
+  denied
+}
+
+enum PoapMintStatus {
+  pending
+  minted
+  failed
+}
+
+enum P2PEventType {
+  join
+  leave
+  mute
+  share
+}
+
+model User {
+  id                   String   @id @default(cuid())
+  primaryWalletAddress String?  @db.VarChar(100)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  wallets  Wallet[]
+  sessions Session[]
+  rooms    Room[]    @relation("UserRooms")
+
+  @@index([primaryWalletAddress])
+}
+
+model Wallet {
+  id        String     @id @default(cuid())
+  userId    String
+  address   String     @db.VarChar(100)
+  type      WalletType @default(sui)
+  status    String     @default("active") @db.VarChar(32)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessions   Session[]
+  roomsOwned Room[]    @relation("OwnerWalletRooms")
+
+  @@unique([address])
+  @@index([userId])
+}
+
+model AuthNonce {
+  id            String    @id @default(cuid())
+  walletAddress String    @db.VarChar(100)
+  nonce         String    @db.VarChar(255)
+  expiresAt     DateTime
+  consumedAt    DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@index([walletAddress])
+  @@index([expiresAt])
+}
+
+model Session {
+  id                  String        @id @default(cuid())
+  userId              String
+  walletId            String
+  jwtId               String        @db.VarChar(255)
+  status              SessionStatus @default(active)
+  createdAt           DateTime      @default(now())
+  expiresAt           DateTime
+  lastUsedAt          DateTime      @default(now())
+  ip                  String?       @db.VarChar(64)
+  ua                  String?       @db.VarChar(512)
+  encryptedPrivateKey String? // AES-encrypted ephemeral private key for auto-signing
+  lastPolicyUpdateAt  DateTime? // Last Seal policy sync timestamp
+
+  user       User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  wallet     Wallet               @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  refresh    RefreshToken?
+  ekeys      EphemeralKey[]
+  signatures DelegatedSignature[]
+
+  @@index([userId])
+  @@index([walletId])
+  @@index([status])
+  @@index([expiresAt])
+}
+
+model RefreshToken {
+  id              String    @id @default(cuid())
+  sessionId       String    @unique
+  tokenHash       String    @db.VarChar(255)
+  expiresAt       DateTime
+  revokedAt       DateTime?
+  rotationCounter Int       @default(0)
+  createdAt       DateTime  @default(now())
+
+  session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
+}
+
+model EphemeralKey {
+  id                 String    @id @default(cuid())
+  sessionId          String
+  publicKey          String    @db.VarChar(256)
+  encryptedPublicKey String?   @db.VarChar(512) // Optional encrypted version for advanced scopes
+  alg                String    @db.VarChar(64) // e.g., ed25519
+  scope              String    @db.VarChar(512) // space/comma-separated scopes: "encrypt,decrypt,add_participant"
+  issuedAt           DateTime  @default(now())
+  expiresAt          DateTime
+  revokedAt          DateTime?
+
+  session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@index([expiresAt])
+}
+
+model DelegatedSignature {
+  id             String   @id @default(cuid())
+  sessionId      String
+  txTemplateHash String   @db.VarChar(128)
+  signature      String   @db.VarChar(1024)
+  scope          String   @db.VarChar(512)
+  expiresAt      DateTime
+  createdAt      DateTime @default(now())
+
+  session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@index([expiresAt])
+}
+
+model Room {
+  id              String   @id @default(cuid())
+  onchainObjectId String   @unique @db.VarChar(128)
+  ownerUserId     String
+  ownerWalletId   String
+  title           String   @db.VarChar(256)
+  requireApproval Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Seal & Invite enhancements
+  sealPolicyId    String? @db.VarChar(128) // Links to on-chain SealApproveWhitelist UID
+  encryptedInvite String? // Base64-encoded ciphertext for invites (large text)
+
+  // Session timing
+  startTime DateTime? // Mirrors on-chain start_time (from Sui Clock)
+  endTime   DateTime? // Manual/auto session end
+
+  // Analytics & tracking
+  attendanceCount Int @default(0) // Cached count of active members
+
+  ownerUser      User              @relation("UserRooms", fields: [ownerUserId], references: [id], onDelete: Cascade)
+  ownerWallet    Wallet            @relation("OwnerWalletRooms", fields: [ownerWalletId], references: [id], onDelete: Cascade)
+  memberships    RoomMembership[]
+  approvals      ApprovalRequest[]
+  poapMints      PoapMint[]
+  p2pSessionLogs P2PSessionLog[]
+  invites        Invite[]
+
+  @@index([ownerUserId])
+  @@index([ownerWalletId])
+  @@index([sealPolicyId])
+  @@index([startTime])
+  @@index([endTime])
+}
+
+model RoomMembership {
+  id            String           @id @default(cuid())
+  roomId        String
+  walletAddress String           @db.VarChar(100)
+  role          MembershipRole   @default(guest)
+  status        MembershipStatus @default(active)
+  updatedAt     DateTime         @default(now())
+  createdAt     DateTime         @default(now())
+
+  // Participation tracking
+  joinTime   DateTime? // Timestamp when guest joins (set via backend after join_session tx)
+  leaveTime  DateTime? // Timestamp on exit for analytics
+  poapMinted Boolean   @default(false) // Flag for post-meeting NFT mint status
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, walletAddress])
+  @@index([walletAddress])
+  @@index([joinTime])
+}
+
+model ApprovalRequest {
+  id               String         @id @default(cuid())
+  roomId           String
+  requesterAddress String         @db.VarChar(100)
+  status           ApprovalStatus @default(pending)
+  createdAt        DateTime       @default(now())
+  resolvedAt       DateTime?
+
+  // Resolver info for audits
+  resolverAddress    String? @db.VarChar(100) // Sui address of the host who approved/denied
+  resolutionTxDigest String? @db.VarChar(128) // Sui tx digest for on-chain approval (links to explorer)
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@index([roomId])
+  @@index([status])
+  @@index([requesterAddress])
+}
+
+// Post-meeting POAP NFT tracking
+model PoapMint {
+  id              String         @id @default(cuid())
+  roomId          String
+  attendeeAddress String         @db.VarChar(100)
+  mintTxDigest    String?        @db.VarChar(128) // Sui tx digest from poap_minter.move
+  mintStatus      PoapMintStatus @default(pending)
+  createdAt       DateTime       @default(now())
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, attendeeAddress])
+  @@index([roomId])
+  @@index([attendeeAddress])
+  @@index([mintStatus])
+}
+
+// Real-time P2P collaboration analytics
+model P2PSessionLog {
+  id                 String       @id @default(cuid())
+  roomId             String
+  participantAddress String       @db.VarChar(100)
+  eventType          P2PEventType
+  timestamp          DateTime     @default(now())
+  details            Json? // JSON: e.g., { "fileHash": "walrus_pin" }
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@index([roomId, timestamp])
+  @@index([participantAddress])
+  @@index([eventType])
+}
+
+// Invite tracking for multi-invite rooms
+model Invite {
+  id            String    @id @default(cuid())
+  roomId        String
+  inviteCode    String    @unique @db.VarChar(64) // Short code for shareable links
+  encryptedData String // Full ciphertext (large text)
+  uses          Int       @default(0) // Track multi-use invites
+  expiresAt     DateTime?
+  createdAt     DateTime  @default(now())
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@index([inviteCode])
+  @@index([roomId])
+  @@index([expiresAt])
+}

@@ -16,6 +16,8 @@ import {
     ExclamationTriangleIcon,
     ChevronRightIcon
 } from '@radix-ui/react-icons';
+import { apiClient } from '@/lib/api';
+import { useAuth as useAuthContext } from '@/context/AuthContext';
 
 // TODO: Replace with deployed package ID
 const PACKAGE_ID = process.env.NEXT_PUBLIC_PACKAGE_ID || 'YOUR_PACKAGE_ID';
@@ -34,6 +36,7 @@ function RoomPageContent() {
     const { mutate: signAndExecuteTransaction } = useSignAndExecuteTransaction();
     const currentAccount = useCurrentAccount();
     const suiClient = useSuiClient();
+    const { isAuthenticated: isWalletConnected } = useAuthContext();
 
     // View mode state
     const [viewMode, setViewMode] = useState<ViewMode>('create');
@@ -151,7 +154,7 @@ function RoomPageContent() {
     const handleCreateRoom = async (e: React.FormEvent) => {
         e.preventDefault();
 
-        if (!currentAccount) {
+        if (!currentAccount || !isWalletConnected) {
             setError('Please connect your wallet first');
             return;
         }
@@ -165,60 +168,27 @@ function RoomPageContent() {
         setError('');
 
         try {
-            const txb = new Transaction();
-            
-            // Encode title as bytes
-            const titleBytes = Array.from(new TextEncoder().encode(formData.title));
-            
-            // Get addresses from whitelist
-            const addresses = whitelist.map(item => item.address);
-
-            txb.moveCall({
-                target: `${PACKAGE_ID}::meeting_room::create_room`,
-                arguments: [
-                    txb.pure.vector('u8', titleBytes),
-                    txb.pure.vector('address', addresses),
-                    txb.pure.bool(formData.requireApproval),
-                ],
-            });
-
-            signAndExecuteTransaction(
-                { transaction: txb },
+            // Create room via backend API - no authentication needed, wallet address is proof
+            const response = await apiClient.createRoom(
                 {
-                    onSuccess: (result) => {
-                        console.log('Room created:', result);
-                        
-                        // Extract created room ID from transaction effects
-                        try {
-                            const effects = result.effects as any;
-                            if (effects?.created && Array.isArray(effects.created) && effects.created.length > 0) {
-                                const newRoomId = effects.created[0]?.reference?.objectId;
-                                if (newRoomId) {
-                                    setRoomId(newRoomId);
-                                    setSuccessMessage('Meeting room created successfully!');
-                                    setViewMode('manage');
-                                    
-                                    // Generate invite link
-                                    const link = `${window.location.origin}/room/join?roomId=${newRoomId}`;
-                                    setInviteLink(link);
-                                    return;
-                                }
-                            }
-                        } catch (e) {
-                            console.error('Error extracting room ID:', e);
-                        }
-                        // Fallback if we can't extract room ID
-                        setSuccessMessage('Room created! Check transaction on explorer.');
-                    },
-                    onError: (err) => {
-                        console.error('Failed to create room:', err);
-                        setError('Failed to create room. Please try again.');
-                    }
+                    title: formData.title,
+                    initialParticipants: whitelist.map(item => item.address),
+                    requireApproval: formData.requireApproval,
+                    walletAddress: currentAccount.address,
                 }
             );
+
+            const newRoomId = response.room.id;
+            setRoomId(newRoomId);
+            setSuccessMessage('Meeting room created successfully!');
+            setViewMode('manage');
+            
+            // Generate invite link
+            const link = `${window.location.origin}/room/join?roomId=${newRoomId}`;
+            setInviteLink(link);
         } catch (err) {
-            console.error('Transaction error:', err);
-            setError('Failed to create room. Please check your inputs.');
+            console.error('Failed to create room:', err);
+            setError(err instanceof Error ? err.message : 'Failed to create room. Please try again.');
         } finally {
             setLoading(false);
         }
@@ -417,7 +387,7 @@ function RoomPageContent() {
 
                                 <button
                                     type="submit"
-                                    disabled={loading || whitelist.length === 0}
+                                    disabled={loading || whitelist.length === 0 || !isWalletConnected}
                                     className="w-full px-6 py-3 bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-lg font-medium hover:shadow-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                                 >
                                     {loading ? (
@@ -600,13 +570,21 @@ function RoomPageContent() {
                                     <p className="text-xs text-gray-500 mb-3">
                                         Only whitelisted addresses can access this meeting
                                     </p>
-                                    <button
+                                    <div className="grid grid-cols-2 gap-2">
+                                      <button
                                         onClick={() => router.push(`/room/join?roomId=${roomId}`)}
                                         className="w-full px-6 py-3 bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-lg font-medium hover:shadow-lg transition-all duration-200 flex items-center justify-center gap-2"
-                                    >
+                                      >
                                         Join Meeting
                                         <ChevronRightIcon className="w-4 h-4" />
-                                    </button>
+                                      </button>
+                                      <button
+                                        onClick={() => router.push(`/calling?roomId=${roomId}&role=host`)}
+                                        className="w-full px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg font-medium hover:shadow-lg transition-all duration-200 flex items-center justify-center gap-2"
+                                      >
+                                        Start Call
+                                      </button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
