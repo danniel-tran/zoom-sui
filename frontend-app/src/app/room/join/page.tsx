@@ -13,8 +13,8 @@ import {
     ChevronRightIcon
 } from '@radix-ui/react-icons';
 
-// TODO: Replace with deployed package ID
-const PACKAGE_ID = process.env.NEXT_PUBLIC_PACKAGE_ID || 'YOUR_PACKAGE_ID';
+// Package ID from environment variable
+const PACKAGE_ID = process.env.NEXT_PUBLIC_PACKAGE_ID || '';
 
 function JoinRoomPageContent() {
     const router = useRouter();
@@ -90,8 +90,8 @@ function JoinRoomPageContent() {
     };
 
     const handleJoinMeeting = () => {
-        // TODO: Navigate to actual meeting room with video/audio
-        router.push(`/meeting?roomId=${roomId}`);
+        // Navigate to calling page for video/audio meeting
+        router.push(`/calling?roomId=${roomId}&role=guest`);
     };
 
     if (loading) {

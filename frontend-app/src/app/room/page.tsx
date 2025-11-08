@@ -16,10 +16,17 @@ import {
     ExclamationTriangleIcon,
     ChevronRightIcon
 } from '@radix-ui/react-icons';
+import { apiClient } from '@/lib/api';
+import { useAuth as useAuthContext } from '@/context/AuthContext';
 
-// TODO: Replace with deployed package ID
-const PACKAGE_ID = process.env.NEXT_PUBLIC_PACKAGE_ID || 'YOUR_PACKAGE_ID';
+// Package ID from environment variable
+const PACKAGE_ID = process.env.NEXT_PUBLIC_PACKAGE_ID || '';
 const CLOCK_OBJECT_ID = '0x6'; // Sui Clock object (shared)
+const REGISTRY_OBJECT_ID = process.env.NEXT_PUBLIC_REGISTRY_ID || ''; // RoomRegistry shared object ID
+
+if (!PACKAGE_ID || PACKAGE_ID === 'YOUR_PACKAGE_ID') {
+    console.error('NEXT_PUBLIC_PACKAGE_ID is not set. Please set it in .env.local');
+}
 
 interface WhitelistAddress {
     address: string;
@@ -34,6 +41,7 @@ function RoomPageContent() {
     const { mutate: signAndExecuteTransaction } = useSignAndExecuteTransaction();
     const currentAccount = useCurrentAccount();
     const suiClient = useSuiClient();
+    const { isAuthenticated: isWalletConnected } = useAuthContext();
 
     // View mode state
     const [viewMode, setViewMode] = useState<ViewMode>('create');
@@ -49,11 +57,16 @@ function RoomPageContent() {
     // Form state for creating meeting
     const [formData, setFormData] = useState({
         title: '',
+        description: '',
         date: '',
         time: '',
         duration: '60',
+        maxParticipants: '10',
         requireApproval: true,
     });
+
+    // HostCap state - stores the HostCap object ID for managing the room
+    const [hostCapId, setHostCapId] = useState<string>('');
 
     // Whitelist management
     const [whitelist, setWhitelist] = useState<WhitelistAddress[]>([]);
@@ -151,7 +164,7 @@ function RoomPageContent() {
     const handleCreateRoom = async (e: React.FormEvent) => {
         e.preventDefault();
 
-        if (!currentAccount) {
+        if (!currentAccount || !isWalletConnected) {
             setError('Please connect your wallet first');
             return;
         }
@@ -161,81 +174,282 @@ function RoomPageContent() {
             return;
         }
 
+        // Validate registry ID
+        if (!REGISTRY_OBJECT_ID) {
+            setError('Registry object ID is not configured. Please set NEXT_PUBLIC_REGISTRY_ID in .env.local');
+            setLoading(false);
+            return;
+        }
+
+        // Validate max participants
+        const maxParticipants = parseInt(formData.maxParticipants);
+        if (isNaN(maxParticipants) || maxParticipants < 1 || maxParticipants > 20) {
+            setError('Max participants must be between 1 and 20');
+            setLoading(false);
+            return;
+        }
+
         setLoading(true);
         setError('');
 
-        try {
-            const txb = new Transaction();
-            
-            // Encode title as bytes
-            const titleBytes = Array.from(new TextEncoder().encode(formData.title));
-            
-            // Get addresses from whitelist
-            const addresses = whitelist.map(item => item.address);
+        // Validate package ID
+        if (!PACKAGE_ID || PACKAGE_ID.includes('YOUR_PACKAGE_ID')) {
+            setError('Package ID is not configured. Please set NEXT_PUBLIC_PACKAGE_ID in .env.local and restart the dev server.');
+            setLoading(false);
+            return;
+        }
 
+        // Validate package ID format
+        if (!PACKAGE_ID.startsWith('0x') || PACKAGE_ID.length < 10) {
+            setError(`Invalid package ID format: ${PACKAGE_ID}. Please check your .env.local file.`);
+            setLoading(false);
+            return;
+        }
+
+        try {
+            console.log('Creating room with package ID:', PACKAGE_ID);
+            
+            // Check user's SUI balance first
+            try {
+                const balance = await suiClient.getBalance({
+                    owner: currentAccount.address,
+                });
+                const balanceInSui = Number(balance.totalBalance) / 1_000_000_000;
+                console.log('User balance:', balanceInSui, 'SUI');
+                
+                if (balanceInSui < 0.01) {
+                    setError('Insufficient SUI balance. You need at least 0.01 SUI to create a room. Please fund your wallet.');
+                    setLoading(false);
+                    return;
+                }
+            } catch (balanceError) {
+                console.warn('Could not check balance:', balanceError);
+                // Continue anyway - the transaction will fail with a clearer error if no gas
+            }
+            
+            // Step 1: Create room on-chain via Sui transaction
+            const txb = new Transaction();
+            const titleBytes = new TextEncoder().encode(formData.title);
+            const descriptionBytes = formData.description 
+                ? new TextEncoder().encode(formData.description)
+                : null;
+            const participants = whitelist.map(item => item.address);
+            const maxParticipants = parseInt(formData.maxParticipants);
+            
+            // Set gas budget (100M MIST = 0.1 SUI) - wallet will auto-select gas coins
+            txb.setGasBudget(100_000_000);
+            
+            // New contract signature: create_room(registry, title, description, max_participants, require_approval, initial_participants, clock)
+            // For Option<vector<u8>>, pass empty vector for None, or the actual vector for Some
+            const descriptionArg = descriptionBytes 
+                ? Array.from(descriptionBytes)
+                : []; // Empty array for None option
+            
             txb.moveCall({
-                target: `${PACKAGE_ID}::meeting_room::create_room`,
+                target: `${PACKAGE_ID}::sealmeet::create_room`,
                 arguments: [
-                    txb.pure.vector('u8', titleBytes),
-                    txb.pure.vector('address', addresses),
-                    txb.pure.bool(formData.requireApproval),
+                    txb.object(REGISTRY_OBJECT_ID), // Registry shared object
+                    txb.pure.vector('u8', Array.from(titleBytes)), // title
+                    txb.pure.option('vector<u8>', descriptionArg), // description (empty vector = None, non-empty = Some)
+                    txb.pure.u64(maxParticipants), // max_participants
+                    txb.pure.bool(formData.requireApproval), // require_approval
+                    txb.pure.vector('address', participants), // initial_participants
+                    txb.object(CLOCK_OBJECT_ID), // Clock object
                 ],
             });
 
+            // Execute transaction and get the created object ID
             signAndExecuteTransaction(
                 { transaction: txb },
                 {
-                    onSuccess: (result) => {
-                        console.log('Room created:', result);
-                        
-                        // Extract created room ID from transaction effects
+                    onSuccess: async (result) => {
                         try {
-                            const effects = result.effects as any;
-                            if (effects?.created && Array.isArray(effects.created) && effects.created.length > 0) {
-                                const newRoomId = effects.created[0]?.reference?.objectId;
-                                if (newRoomId) {
-                                    setRoomId(newRoomId);
-                                    setSuccessMessage('Meeting room created successfully!');
-                                    setViewMode('manage');
+                            // result is a transaction digest string
+                            const txDigest = typeof result === 'string' ? result : (result as any)?.digest || result;
+                            
+                            if (!txDigest) {
+                                throw new Error('Transaction digest not found in result');
+                            }
+
+                            console.log('Transaction digest:', txDigest);
+
+                            // Wait for transaction to be confirmed and indexed (with retry)
+                            console.log('Waiting for transaction to be confirmed...');
+                            let txDetails: any = null;
+                            let retries = 10;
+                            let delay = 2000; // Start with 2 seconds
+
+                            while (retries > 0 && !txDetails) {
+                                try {
+                                    await new Promise(resolve => setTimeout(resolve, delay));
                                     
-                                    // Generate invite link
-                                    const link = `${window.location.origin}/room/join?roomId=${newRoomId}`;
-                                    setInviteLink(link);
-                                    return;
+                                    txDetails = await suiClient.getTransactionBlock({
+                                        digest: txDigest,
+                                        options: {
+                                            showEffects: true,
+                                            showObjectChanges: true,
+                                        },
+                                    });
+                                    
+                                    console.log('Transaction found!');
+                                    break;
+                                } catch (fetchError: any) {
+                                    if (fetchError?.message?.includes('Could not find') || 
+                                        fetchError?.message?.includes('not found')) {
+                                        console.log(`Transaction not yet indexed, waiting ${delay}ms... (${retries} retries left)`);
+                                        retries--;
+                                        delay = Math.min(delay + 500, 5000); // Gradually increase delay
+                                    } else {
+                                        throw fetchError;
+                                    }
                                 }
                             }
-                        } catch (e) {
-                            console.error('Error extracting room ID:', e);
+
+                            if (!txDetails) {
+                                throw new Error(`Transaction not found after retries. Digest: ${txDigest}`);
+                            }
+
+                            console.log('Transaction confirmed, extracting object ID...');
+
+                            // Extract the created room object ID and HostCap from object changes
+                            let roomObjectId: string | null = null;
+                            let hostCapObjectId: string | null = null;
+                            
+                            // Try objectChanges first (most reliable)
+                            const objectChanges = txDetails.objectChanges || [];
+                            
+                            // Find MeetingRoom object (shared object)
+                            const createdRoom = objectChanges.find(
+                                (change: any) => 
+                                    change.type === 'created' && 
+                                    (change.objectType?.includes('MeetingRoom') || 
+                                     change.objectType?.includes('sealmeet::MeetingRoom') ||
+                                     change.objectType?.includes('sealmeet::sealmeet::MeetingRoom'))
+                            );
+
+                            // Find HostCap object (owned by sender)
+                            const createdHostCap = objectChanges.find(
+                                (change: any) => 
+                                    change.type === 'created' && 
+                                    (change.objectType?.includes('HostCap') || 
+                                     change.objectType?.includes('sealmeet::HostCap') ||
+                                     change.objectType?.includes('sealmeet::sealmeet::HostCap'))
+                            );
+
+                            if (createdRoom && createdRoom.type === 'created' && createdRoom.objectId) {
+                                roomObjectId = createdRoom.objectId;
+                                console.log('Found room object ID from objectChanges:', roomObjectId);
+                            }
+
+                            if (createdHostCap && createdHostCap.type === 'created' && createdHostCap.objectId) {
+                                hostCapObjectId = createdHostCap.objectId;
+                                if (hostCapObjectId) {
+                                    setHostCapId(hostCapObjectId);
+                                    console.log('Found HostCap object ID:', hostCapObjectId);
+                                }
+                            }
+
+                            // If not found, try effects
+                            if (!roomObjectId && txDetails.effects) {
+                                const effects = txDetails.effects as any;
+                                if (effects?.created && Array.isArray(effects.created)) {
+                                    // Look for shared objects (MeetingRoom is shared)
+                                    const sharedObject = effects.created.find((obj: any) => 
+                                        obj.owner?.Shared !== undefined
+                                    );
+                                    if (sharedObject?.reference?.objectId) {
+                                        roomObjectId = sharedObject.reference.objectId;
+                                        console.log('Found room object ID from effects:', roomObjectId);
+                                    }
+                                }
+                            }
+
+                            if (!roomObjectId) {
+                                // Transaction succeeded but we can't find the object ID
+                                // Show transaction digest so user can check on explorer
+                                const explorerUrl = `https://suiexplorer.com/txblock/${txDigest}?network=testnet`;
+                                throw new Error(
+                                    `Room created on-chain but object ID not found. ` +
+                                    `Transaction: ${txDigest}. ` +
+                                    `Check explorer: ${explorerUrl}. ` +
+                                    `Please refresh and try again in a few seconds.`
+                                );
+                            }
+
+                            console.log('Room object ID extracted:', roomObjectId);
+
+                            // Step 2: Create room record in backend with on-chain object ID and HostCap
+                            const response = await apiClient.createRoom(
+                                {
+                                    title: formData.title,
+                                    description: formData.description || undefined,
+                                    maxParticipants: parseInt(formData.maxParticipants),
+                                    initialParticipants: whitelist.map(item => item.address),
+                                    requireApproval: formData.requireApproval,
+                                    walletAddress: currentAccount.address,
+                                    onchainObjectId: roomObjectId,
+                                    hostCapId: hostCapObjectId || undefined,
+                                }
+                            );
+
+                            // Use on-chain object ID as the primary identifier
+                            setRoomId(roomObjectId);
+                            setSuccessMessage('Meeting room created successfully on-chain!');
+                            setViewMode('manage');
+                            
+                            // Generate invite link using on-chain object ID
+                            const link = `${window.location.origin}/room/join?roomId=${roomObjectId}`;
+                            setInviteLink(link);
+                        } catch (err) {
+                            console.error('Failed to create room in backend:', err);
+                            setError(err instanceof Error ? err.message : 'Failed to create room record. On-chain room was created but backend sync failed.');
+                        } finally {
+                            setLoading(false);
                         }
-                        // Fallback if we can't extract room ID
-                        setSuccessMessage('Room created! Check transaction on explorer.');
                     },
-                    onError: (err) => {
-                        console.error('Failed to create room:', err);
-                        setError('Failed to create room. Please try again.');
+                    onError: (err: any) => {
+                        console.error('Failed to create room on-chain:', err);
+                        let errorMessage = 'Failed to create room on-chain. ';
+                        
+                        // Provide helpful error messages
+                        if (err?.message?.includes('gas') || err?.message?.includes('No valid gas coins')) {
+                            errorMessage += 'Your wallet does not have enough SUI tokens for gas fees. Please add SUI to your wallet and try again.';
+                        } else if (err?.message) {
+                            errorMessage += err.message;
+                        } else {
+                            errorMessage += 'Please try again.';
+                        }
+                        
+                        setError(errorMessage);
+                        setLoading(false);
                     }
                 }
             );
         } catch (err) {
-            console.error('Transaction error:', err);
-            setError('Failed to create room. Please check your inputs.');
-        } finally {
+            console.error('Failed to create room:', err);
+            setError(err instanceof Error ? err.message : 'Failed to create room. Please try again.');
             setLoading(false);
         }
     };
 
     const handleApproveGuest = async (guestAddress: string) => {
-        if (!currentAccount || !roomId) return;
+        if (!currentAccount || !roomId || !hostCapId) {
+            setError('HostCap not found. Please reload the page or create a new room.');
+            return;
+        }
 
         setLoading(true);
         try {
             const txb = new Transaction();
+            txb.setGasBudget(100_000_000); // Set gas budget
+            // New signature: approve_guest(host_cap, room, guest, clock)
             txb.moveCall({
-                target: `${PACKAGE_ID}::meeting_room::approve_guest`,
+                target: `${PACKAGE_ID}::sealmeet::approve_guest`,
                 arguments: [
-                    txb.object(roomId),
-                    txb.pure.address(guestAddress),
-                    txb.object(CLOCK_OBJECT_ID),
+                    txb.object(hostCapId), // HostCap (owned object)
+                    txb.object(roomId), // MeetingRoom (shared object)
+                    txb.pure.address(guestAddress), // guest address
+                    txb.object(CLOCK_OBJECT_ID), // Clock object
                 ],
             });
 
@@ -261,17 +475,23 @@ function RoomPageContent() {
     };
 
     const handleRevokeGuest = async (guestAddress: string) => {
-        if (!currentAccount || !roomId) return;
+        if (!currentAccount || !roomId || !hostCapId) {
+            setError('HostCap not found. Please reload the page or create a new room.');
+            return;
+        }
 
         setLoading(true);
         try {
             const txb = new Transaction();
+            txb.setGasBudget(100_000_000); // Set gas budget
+            // New signature: revoke_guest(host_cap, room, guest, clock)
             txb.moveCall({
-                target: `${PACKAGE_ID}::meeting_room::revoke_guest`,
+                target: `${PACKAGE_ID}::sealmeet::revoke_guest`,
                 arguments: [
-                    txb.object(roomId),
-                    txb.pure.address(guestAddress),
-                    txb.object(CLOCK_OBJECT_ID),
+                    txb.object(hostCapId), // HostCap (owned object)
+                    txb.object(roomId), // MeetingRoom (shared object)
+                    txb.pure.address(guestAddress), // guest address
+                    txb.object(CLOCK_OBJECT_ID), // Clock object
                 ],
             });
 
@@ -310,12 +530,24 @@ function RoomPageContent() {
                 <div className="max-w-4xl mx-auto">
                     {/* Header */}
                     <div className="mb-8">
-                        <h1 className="text-4xl font-bold text-gray-900 mb-2">
-                            Create Secure Meeting
-                        </h1>
-                        <p className="text-gray-600">
-                            Set up your meeting with blockchain-secured access control
-                        </p>
+                        <div className="flex justify-between items-start mb-2">
+                            <div>
+                                <h1 className="text-4xl font-bold text-gray-900 mb-2">
+                                    Create Secure Meeting
+                                </h1>
+                                <p className="text-gray-600">
+                                    Set up your meeting with blockchain-secured access control
+                                </p>
+                            </div>
+                            {currentAccount && (
+                                <button
+                                    onClick={() => router.push('/my-rooms')}
+                                    className="px-4 py-2 text-sm text-gray-700 hover:text-blue-600 hover:bg-blue-50 rounded-lg font-medium transition-all"
+                                >
+                                    View My Rooms
+                                </button>
+                            )}
+                        </div>
                     </div>
 
                     {/* Error/Success Messages */}
@@ -353,6 +585,36 @@ function RoomPageContent() {
                                         placeholder="Team Sync - Q1 Planning"
                                         required
                                     />
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                                        Description (Optional)
+                                    </label>
+                                    <textarea
+                                        value={formData.description}
+                                        onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
+                                        placeholder="Brief description of the meeting..."
+                                        rows={3}
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                                        Max Participants *
+                                    </label>
+                                    <input
+                                        type="number"
+                                        min="1"
+                                        max="20"
+                                        value={formData.maxParticipants}
+                                        onChange={(e) => setFormData({ ...formData, maxParticipants: e.target.value })}
+                                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
+                                        placeholder="10"
+                                        required
+                                    />
+                                    <p className="text-xs text-gray-500 mt-1">Maximum number of participants (1-20)</p>
                                 </div>
 
                                 <div className="grid grid-cols-2 gap-4">
@@ -417,7 +679,7 @@ function RoomPageContent() {
 
                                 <button
                                     type="submit"
-                                    disabled={loading || whitelist.length === 0}
+                                    disabled={loading || whitelist.length === 0 || !isWalletConnected}
                                     className="w-full px-6 py-3 bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-lg font-medium hover:shadow-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                                 >
                                     {loading ? (
@@ -601,12 +863,15 @@ function RoomPageContent() {
                                         Only whitelisted addresses can access this meeting
                                     </p>
                                     <button
-                                        onClick={() => router.push(`/room/join?roomId=${roomId}`)}
+                                        onClick={() => router.push(`/calling?roomId=${roomId}&role=host`)}
                                         className="w-full px-6 py-3 bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-lg font-medium hover:shadow-lg transition-all duration-200 flex items-center justify-center gap-2"
                                     >
-                                        Join Meeting
+                                        Start Meeting
                                         <ChevronRightIcon className="w-4 h-4" />
                                     </button>
+                                    <p className="text-xs text-gray-500 mt-2 text-center">
+                                        Share the invite link above for guests to join
+                                    </p>
                                 </div>
                             </div>
                         </div>

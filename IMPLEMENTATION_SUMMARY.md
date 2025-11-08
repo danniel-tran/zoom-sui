@@ -1,20 +1,49 @@
-# Room & Whitelist Implementation Summary
+# Frontend Room Creation Implementation Summary
 
 ## What Was Built
 
-A complete **blockchain-secured meeting room** system with on-chain whitelist access control, implemented using Sui Move smart contracts and Next.js 15 frontend.
+A complete **frontend-backend integration** for secure meeting room creation, connecting the Next.js 15 frontend to a TypeScript backend with persistent storage and JWT authentication.
 
 ## Files Created/Modified
 
+### New Backend Integration Files
+
+1. **`frontend-app/src/lib/api.ts`** (New)
+   - **Type-safe API client** for backend communication
+   - Methods for room creation, retrieval, guest approval
+   - Automatic error handling and response parsing
+   - Supports JWT token authentication
+
+2. **`frontend-app/src/hooks/useToken.ts`** (New)
+   - **JWT token management** hook
+   - Wallet-based authentication (stubbed for now)
+   - Ready for signature verification
+   - Token refresh and error handling
+
+3. **`frontend-app/.env.example`** (Updated)
+   - Added `NEXT_PUBLIC_API_URL` for backend endpoint
+   - Template for all required environment variables
+
+4. **`frontend-app/ROOM_CREATION_GUIDE.md`** (New)
+   - **Complete integration guide** covering:
+     - Backend API endpoints and request/response formats
+     - Setup instructions for development
+     - Architecture overview of frontend-backend flow
+     - Troubleshooting guide and testing checklist
+
 ### Frontend Pages
 
-1. **`frontend-app/src/app/room/page.tsx`** (Complete Rewrite)
+1. **`frontend-app/src/app/room/page.tsx`** (Updated)
    - **Create Meeting View**: Two-column layout with meeting form + whitelist builder
    - **Manage Room View**: Invite sharing, dynamic whitelist management, room info
+   - **NEW - Backend Integration**:
+     - Calls `POST /api/rooms` to persist room data
+     - Receives room ID from backend instead of blockchain
+     - Creates invitable rooms with instant availability
    - **Features**:
      - Real-time Sui address validation (0x prefix, hex format, length check)
      - Add/remove addresses from whitelist before creation
-     - Approve/revoke guests after room creation (on-chain transactions)
+     - Approve/revoke guests after room creation (backend API calls)
      - Copy invite link and room ID to clipboard
      - Display room metadata (title, approval status, last updated timestamp)
 
