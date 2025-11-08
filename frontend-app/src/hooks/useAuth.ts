@@ -1,5 +1,13 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useCurrentAccount, useSignPersonalMessage } from '@mysten/dapp-kit';
+import {
+  getAccessToken,
+  getRefreshToken,
+  storeTokens,
+  updateAccessToken,
+  clearTokens,
+  isTokenExpired,
+} from '@/lib/auth-storage';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
 
@@ -86,14 +94,16 @@ export function useAuth() {
       }
 
       const data = await response.json();
-      
+
       setAccessToken(data.accessToken);
       setRefreshToken(data.refreshToken);
-      
-      // Store in localStorage for persistence
-      localStorage.setItem('accessToken', data.accessToken);
-      localStorage.setItem('refreshToken', data.refreshToken);
-      localStorage.setItem('tokenExpiresAt', data.session.expiresAt);
+
+      // Store tokens using centralized storage utility
+      storeTokens({
+        accessToken: data.accessToken,
+        refreshToken: data.refreshToken,
+        expiresAt: data.session.expiresAt,
+      });
 
       return true;
     } catch (err) {
@@ -106,11 +116,20 @@ export function useAuth() {
   }, [currentAccount, requestNonce, signMessage]);
 
   /**
+   * Logout and clear tokens
+   */
+  const logout = useCallback(() => {
+    setAccessToken('');
+    setRefreshToken('');
+    clearTokens();
+  }, []);
+
+  /**
    * Refresh access token using refresh token
    */
   const refreshAccessToken = useCallback(async (): Promise<boolean> => {
-    const storedRefreshToken = refreshToken || localStorage.getItem('refreshToken');
-    
+    const storedRefreshToken = refreshToken || getRefreshToken();
+
     if (!storedRefreshToken) {
       setError('No refresh token available');
       return false;
@@ -130,9 +149,9 @@ export function useAuth() {
       }
 
       const data = await response.json();
-      
+
       setAccessToken(data.accessToken);
-      localStorage.setItem('accessToken', data.accessToken);
+      updateAccessToken(data.accessToken);
 
       return true;
     } catch (err) {
@@ -140,35 +159,16 @@ export function useAuth() {
       setError(errorMsg);
       return false;
     }
-  }, [refreshToken]);
+  }, [refreshToken, logout]);
 
   /**
    * Check if token needs refresh and refresh if necessary
    */
   const refreshTokenIfNeeded = useCallback(async () => {
-    const expiresAt = localStorage.getItem('tokenExpiresAt');
-    if (!expiresAt) return;
-
-    const expiryTime = new Date(expiresAt).getTime();
-    const now = Date.now();
-    const fiveMinutes = 5 * 60 * 1000;
-
-    // Refresh if token expires in less than 5 minutes
-    if (expiryTime - now < fiveMinutes) {
+    if (isTokenExpired(5)) {
       await refreshAccessToken();
     }
   }, [refreshAccessToken]);
-
-  /**
-   * Logout and clear tokens
-   */
-  const logout = useCallback(() => {
-    setAccessToken('');
-    setRefreshToken('');
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('refreshToken');
-    localStorage.removeItem('tokenExpiresAt');
-  }, []);
 
   /**
    * Check if user is authenticated
@@ -177,9 +177,9 @@ export function useAuth() {
 
   // Restore tokens from localStorage on mount
   useEffect(() => {
-    const storedAccessToken = localStorage.getItem('accessToken');
-    const storedRefreshToken = localStorage.getItem('refreshToken');
-    
+    const storedAccessToken = getAccessToken();
+    const storedRefreshToken = getRefreshToken();
+
     if (storedAccessToken) setAccessToken(storedAccessToken);
     if (storedRefreshToken) setRefreshToken(storedRefreshToken);
   }, []);

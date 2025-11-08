@@ -99,7 +99,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     useEffect(() => {
         const storedUser = localStorage.getItem('zkLoginUser');
         const storedAddress = localStorage.getItem('zkLoginAddress');
-        
+
         if (storedUser && storedAddress) {
             try {
                 setZkUser(JSON.parse(storedUser));
@@ -111,6 +111,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             }
         }
     }, []);
+
+    // Clear wallet authentication when wallet is disconnected
+    useEffect(() => {
+        if (!walletAccount && isWalletAuthenticated) {
+            // Wallet was disconnected, clear the auth tokens
+            console.log('Wallet disconnected, clearing authentication');
+            logoutWallet();
+        }
+    }, [walletAccount, isWalletAuthenticated, logoutWallet]);
 
     // Actions
     const loginWithZkLogin = () => {
