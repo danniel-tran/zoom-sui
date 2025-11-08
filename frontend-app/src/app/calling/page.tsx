@@ -72,8 +72,20 @@ const CallingPage = () => {
   useEffect(() => {
     const pc = pcRef.current;
     if (!pc || !pcReady) return;
+
+    // Log connection state changes
+    pc.onconnectionstatechange = () => {
+      console.log('[WebRTC] Connection state:', pc.connectionState);
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      console.log('[WebRTC] ICE connection state:', pc.iceConnectionState);
+    };
+
     pc.ontrack = (event) => {
+      console.log('[WebRTC] Received remote track:', event.track.kind);
       const stream = event.streams[0];
+      console.log('[WebRTC] Remote stream has', stream.getTracks().length, 'tracks');
       setRemoteStream(stream);
       setParticipants((prev) => {
         const you: Participant = {
@@ -85,18 +97,23 @@ const CallingPage = () => {
         return [you, peer];
       });
     };
+
     pc.onicecandidate = async (event) => {
       if (event.candidate) {
+        console.log('[WebRTC] Sending ICE candidate as', role);
         try {
           await apiClient.postCandidate(roomId, event.candidate, role);
         } catch (e) {
-          console.error('Failed to post candidate', e);
+          console.error('[WebRTC] Failed to post candidate', e);
         }
       }
     };
+
     return () => {
       pc.ontrack = null;
       pc.onicecandidate = null;
+      pc.onconnectionstatechange = null;
+      pc.oniceconnectionstatechange = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pcReady, roomId, role, audioEnabled, videoEnabled]);
@@ -104,30 +121,39 @@ const CallingPage = () => {
   useEffect(() => {
     const setup = async () => {
       try {
+        console.log('[Setup] Starting as', role, 'for room', roomId);
         const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        console.log('[Setup] Got local stream with', stream.getTracks().length, 'tracks');
         setLocalStream(stream);
         const pc = pcRef.current;
         if (pc) {
-          stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+          stream.getTracks().forEach((t) => {
+            console.log('[Setup] Adding local track:', t.kind);
+            pc.addTrack(t, stream);
+          });
         }
         setParticipants([
           { id: 'you', name: 'You', role: role === 'host' ? 'host' : 'guest', audioMuted: !audioEnabled, videoMuted: !videoEnabled },
         ]);
 
         if (role === 'host') {
+          console.log('[Setup] HOST: Creating offer...');
           const pc = pcRef.current;
           if (!pc) return;
           const offer = await pc.createOffer();
           await pc.setLocalDescription(offer);
+          console.log('[Setup] HOST: Posting offer to server');
           await apiClient.postOffer(roomId, JSON.stringify(offer));
           // poll for answer
+          console.log('[Setup] HOST: Starting to poll for answer');
           startPolling('answer');
         } else {
+          console.log('[Setup] GUEST: Starting to poll for offer');
           // guest: poll for offer, then reply with answer
           startPolling('offer');
         }
       } catch (e) {
-        console.error('Media or setup error', e);
+        console.error('[Setup] Media or setup error', e);
       }
     };
     if (pcReady) setup();
@@ -192,37 +218,44 @@ const CallingPage = () => {
   }, [role, currentAccount?.address, PACKAGE_ID, REGISTRY_OBJECT_ID, roomId]);
 
   const startPolling = (target: 'offer' | 'answer') => {
+    console.log('[Signaling] Starting to poll for', target);
     stopPolling();
     pollingRef.current = setInterval(async () => {
       try {
         if (target === 'offer') {
           const off = await apiClient.getOffer(roomId).catch(() => null);
           if (off?.sdp) {
+            console.log('[Signaling] GUEST: Received offer from server');
             const offerDesc = JSON.parse(off.sdp);
             const pc = pcRef.current;
             if (!pc) return;
             await pc.setRemoteDescription(offerDesc);
+            console.log('[Signaling] GUEST: Creating answer');
             const answer = await pc.createAnswer();
             await pc.setLocalDescription(answer);
+            console.log('[Signaling] GUEST: Posting answer to server');
             await apiClient.postAnswer(roomId, JSON.stringify(answer));
             // after answering, start polling for remote candidates
+            console.log('[Signaling] GUEST: Starting candidate polling');
             startCandidatePolling();
             stopPolling();
           }
         } else {
           const ans = await apiClient.getAnswer(roomId).catch(() => null);
           if (ans?.sdp) {
+            console.log('[Signaling] HOST: Received answer from server');
             const answerDesc = JSON.parse(ans.sdp);
             const pc = pcRef.current;
             if (!pc) return;
             await pc.setRemoteDescription(answerDesc);
             // start polling for remote candidates
+            console.log('[Signaling] HOST: Starting candidate polling');
             startCandidatePolling();
             stopPolling();
           }
         }
       } catch (e) {
-        // ignore transient errors
+        console.error('[Signaling] Error:', e);
       }
     }, 1500);
   };
@@ -231,19 +264,26 @@ const CallingPage = () => {
     // Poll for remote ICE candidates (role receives the other side's)
     // If you're a host, get guest candidates. If you're guest, get host candidates.
     const roleToGet = role === 'host' ? 'guest' : 'host';
+    console.log('[ICE] Starting to poll for', roleToGet, 'candidates (I am', role + ')');
     const intv = setInterval(async () => {
       try {
         const { candidates } = await apiClient.getCandidates(roomId, roleToGet);
+        if (candidates && candidates.length > 0) {
+          console.log('[ICE] Received', candidates.length, 'candidates from', roleToGet);
+        }
         const pc = pcRef.current;
         for (const c of candidates) {
           try {
-            if (pc) await pc.addIceCandidate(c);
+            if (pc) {
+              await pc.addIceCandidate(c);
+              console.log('[ICE] Added candidate from', roleToGet);
+            }
           } catch (err) {
-            console.warn('Failed to add ICE candidate', err);
+            console.warn('[ICE] Failed to add ICE candidate', err);
           }
         }
-      } catch (_) {
-        // ignore
+      } catch (err) {
+        console.error('[ICE] Error fetching candidates:', err);
       }
     }, 1500);
     // Save as a second polling reference
