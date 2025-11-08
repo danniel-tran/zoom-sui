@@ -1,5 +1,5 @@
 "use client";
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 // Simple SVG icons for microphone and video
 const MicrophoneIcon = ({ className }: { className?: string }) => (
   <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" className={className}>
@@ -38,14 +38,52 @@ const VideoFeed: React.FC<Props> = ({
   isLocal = false,
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const [hasVideo, setHasVideo] = useState(false);
+  const [hasAudio, setHasAudio] = useState(false);
 
   useEffect(() => {
-    if (videoRef.current) {
-      if (stream) {
-        videoRef.current.srcObject = stream;
-      } else {
-        videoRef.current.srcObject = null;
-      }
+    const video = videoRef.current;
+    if (!video) return;
+
+    if (stream) {
+      // Set the stream
+      video.srcObject = stream;
+      
+      // Check if stream has video/audio tracks
+      const videoTracks = stream.getVideoTracks();
+      const audioTracks = stream.getAudioTracks();
+      setHasVideo(videoTracks.length > 0 && videoTracks[0].enabled);
+      setHasAudio(audioTracks.length > 0 && audioTracks[0].enabled);
+
+      // Play the video
+      video.play().catch((err) => {
+        console.error('Error playing video:', err);
+      });
+
+      // Handle track updates
+      const handleTrackEnded = () => {
+        setHasVideo(stream.getVideoTracks().some(t => t.enabled));
+        setHasAudio(stream.getAudioTracks().some(t => t.enabled));
+      };
+
+      stream.getTracks().forEach(track => {
+        track.addEventListener('ended', handleTrackEnded);
+        track.addEventListener('mute', handleTrackEnded);
+        track.addEventListener('unmute', handleTrackEnded);
+      });
+
+      // Cleanup
+      return () => {
+        stream.getTracks().forEach(track => {
+          track.removeEventListener('ended', handleTrackEnded);
+          track.removeEventListener('mute', handleTrackEnded);
+          track.removeEventListener('unmute', handleTrackEnded);
+        });
+      };
+    } else {
+      video.srcObject = null;
+      setHasVideo(false);
+      setHasAudio(false);
     }
   }, [stream]);
 
@@ -54,6 +92,9 @@ const VideoFeed: React.FC<Props> = ({
     : isSpeaking
     ? 'ring-2 ring-green-400'
     : 'ring-0';
+
+  const showVideoMuted = videoMuted || !hasVideo;
+  const showAudioMuted = audioMuted || !hasAudio;
 
   return (
     <div className={`w-full ${heightClass} bg-black rounded-lg overflow-hidden relative ${borderClass}`}>
@@ -64,19 +105,31 @@ const VideoFeed: React.FC<Props> = ({
         playsInline
         muted={isLocal}
       />
-      {label && (
+      {!hasVideo && stream && (
+        <div className="absolute inset-0 flex items-center justify-center bg-gray-900">
+          <div className="text-center text-white">
+            <div className="w-16 h-16 bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-2">
+              <span className="text-2xl">
+                {label?.charAt(0).toUpperCase() || '?'}
+              </span>
+            </div>
+            <p className="text-sm">{label || 'No video'}</p>
+          </div>
+        </div>
+      )}
+      {label && hasVideo && (
         <div className="absolute bottom-2 left-2 bg-black/60 text-white px-2 py-1 rounded text-sm">
           {label}
         </div>
       )}
       <div className="absolute top-2 left-2 flex items-center gap-2">
-        {audioMuted && (
+        {showAudioMuted && (
           <span className="inline-flex items-center gap-1 bg-black/60 text-white text-xs px-2 py-1 rounded">
             <MicrophoneIcon className="w-3 h-3" />
             Muted
           </span>
         )}
-        {videoMuted && (
+        {showVideoMuted && (
           <span className="inline-flex items-center gap-1 bg-black/60 text-white text-xs px-2 py-1 rounded">
             <VideoIcon className="w-3 h-3" />
             Video Off

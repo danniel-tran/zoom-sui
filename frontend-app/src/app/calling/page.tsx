@@ -46,9 +46,12 @@ const CallingPage = () => {
   const [speakerView, setSpeakerView] = useState(false);
   const [shareStream, setShareStream] = useState<MediaStream | null>(null);
   const [showShareModal, setShowShareModal] = useState(false);
+  const [connectionState, setConnectionState] = useState<string>('new');
+  const [iceConnectionState, setIceConnectionState] = useState<string>('new');
 
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
+  const candidatePollingRef = useRef<NodeJS.Timeout | null>(null);
   const [pcReady, setPcReady] = useState(false);
   const [hostCapId, setHostCapId] = useState<string | null>(null);
   const [chainBusy, setChainBusy] = useState(false);
@@ -106,6 +109,8 @@ const CallingPage = () => {
         } catch (e) {
           console.error('[WebRTC] Failed to post candidate', e);
         }
+      } else {
+        console.log('ICE candidate gathering complete');
       }
     };
 
@@ -280,6 +285,11 @@ const CallingPage = () => {
   };
 
   const startCandidatePolling = () => {
+    // Stop any existing candidate polling
+    if (candidatePollingRef.current) {
+      clearInterval(candidatePollingRef.current);
+    }
+
     // Poll for remote ICE candidates (role receives the other side's)
     // If you're a host, get guest candidates. If you're guest, get host candidates.
     const roleToGet = role === 'host' ? 'guest' : 'host';
@@ -291,6 +301,8 @@ const CallingPage = () => {
           console.log('[ICE] Received', candidates.length, 'candidates from', roleToGet);
         }
         const pc = pcRef.current;
+        if (!pc) return;
+
         for (const c of candidates) {
           try {
             if (pc) {
@@ -314,6 +326,10 @@ const CallingPage = () => {
     if (pollingRef.current) {
       clearInterval(pollingRef.current);
       pollingRef.current = null;
+    }
+    if (candidatePollingRef.current) {
+      clearInterval(candidatePollingRef.current);
+      candidatePollingRef.current = null;
     }
   };
 
