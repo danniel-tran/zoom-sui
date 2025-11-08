@@ -5,14 +5,74 @@ import { config } from '../config';
 
 const router = Router();
 
+// GET /api/rooms - Get all rooms by wallet address (no auth required for listing)
+router.get('/', async (req: Request, res: Response) => {
+  try {
+    const { walletAddress } = req.query;
+
+    if (!walletAddress || typeof walletAddress !== 'string') {
+      return res.status(400).json({ error: 'Wallet address query parameter is required' });
+    }
+
+    // Find wallet by address
+    const wallet = await prisma.wallet.findUnique({
+      where: { address: walletAddress },
+    });
+
+    if (!wallet) {
+      return res.json({ rooms: [] });
+    }
+
+    // Find all rooms owned by this wallet
+    const rooms = await prisma.room.findMany({
+      where: {
+        ownerWalletId: wallet.id,
+      },
+      include: {
+        memberships: {
+          where: { status: 'active' },
+        },
+        approvals: {
+          where: { status: 'pending' },
+        },
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+
+    res.json({
+      rooms: rooms.map(room => ({
+        id: room.id,
+        onchainObjectId: room.onchainObjectId,
+        title: room.title,
+        requireApproval: room.requireApproval,
+        attendanceCount: room.attendanceCount,
+        memberCount: room.memberships.length,
+        pendingApprovals: room.approvals.length,
+        createdAt: room.createdAt,
+        startTime: room.startTime,
+        endTime: room.endTime,
+      })),
+    });
+  } catch (error) {
+    console.error('Error fetching rooms:', error);
+    res.status(500).json({ error: 'Failed to fetch rooms' });
+  }
+});
+
 // Room creation doesn't require JWT - wallet address is provided directly
 // Other routes still require authentication
 router.post('/', async (req: Request, res: Response) => {
   try {
-    const { title, initialParticipants, requireApproval = true, walletAddress } = req.body;
+    const { title, initialParticipants, requireApproval = true, walletAddress, onchainObjectId } = req.body;
     
     if (!walletAddress) {
       return res.status(400).json({ error: 'Wallet address is required' });
+    }
+
+    if (!onchainObjectId) {
+      return res.status(400).json({ error: 'On-chain object ID is required' });
     }
 
     if (!title || !Array.isArray(initialParticipants)) {
@@ -45,16 +105,15 @@ router.post('/', async (req: Request, res: Response) => {
       });
     }
 
-    // TODO: Create room on-chain via Sui transaction
-    // For now, create room record (onchainObjectId will be set after on-chain creation)
+    // Create room record with on-chain object ID from the transaction
     const room = await prisma.room.create({
       data: {
-        onchainObjectId: `temp_${Date.now()}`, // Temporary, will be updated after on-chain creation
+        onchainObjectId: onchainObjectId,
         ownerUserId: user.id,
         ownerWalletId: wallet.id,
         title,
         requireApproval,
-        sealPolicyId: null, // Will be set after Seal policy creation
+        sealPolicyId: null, // Can be extracted from on-chain object if needed
         attendanceCount: initialParticipants.length,
       },
     });
@@ -148,7 +207,7 @@ router.post('/:roomId/approve', async (req: Request, res: Response) => {
   try {
     const { roomId } = req.params;
     const { guestAddress } = req.body;
-    const walletAddress = req.user!.wal;
+    const walletAddress = req.user!.wal; // JWT payload contains 'wal' property (wallet address)
 
     if (!guestAddress) {
       return res.status(400).json({ error: 'Guest address is required' });

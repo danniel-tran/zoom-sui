@@ -10,6 +10,7 @@ interface Props {
   isSpeaking?: boolean;
   pinned?: boolean;
   reaction?: string | null;
+  heightClass?: string;
 }
 
 const VideoFeed: React.FC<Props> = ({
@@ -20,6 +21,7 @@ const VideoFeed: React.FC<Props> = ({
   isSpeaking = false,
   pinned = false,
   reaction = null,
+  heightClass = 'h-64',
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -40,7 +42,7 @@ const VideoFeed: React.FC<Props> = ({
     : 'ring-0';
 
   return (
-    <div className={`w-full h-64 bg-black rounded-lg overflow-hidden relative ${borderClass}`}>
+    <div className={`w-full ${heightClass} bg-black rounded-lg overflow-hidden relative ${borderClass}`}>
       <video
         ref={videoRef}
         className="w-full h-full object-cover"

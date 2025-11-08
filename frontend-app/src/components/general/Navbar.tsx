@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { HamburgerMenuIcon, Cross2Icon, PlusIcon, ExitIcon, UpdateIcon } from '@radix-ui/react-icons';
+import { HamburgerMenuIcon, Cross2Icon, PlusIcon, ExitIcon, UpdateIcon, CalendarIcon } from '@radix-ui/react-icons';
 import { useCurrentAccount, useDisconnectWallet } from '@mysten/dapp-kit';
 import { useAuth } from '@/context/AuthContext';
 
@@ -59,13 +59,22 @@ export default function Navbar() {
                             ) : (
                                 <>
                                     {currentAccount && (
-                                        <Link
-                                            href="/room"
-                                            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-lg font-medium hover:shadow-lg transition-all duration-200"
-                                        >
-                                            <PlusIcon className="w-4 h-4" />
-                                            Create Room
-                                        </Link>
+                                        <>
+                                            <Link
+                                                href="/my-rooms"
+                                                className="flex items-center gap-2 px-4 py-2 text-gray-700 hover:text-blue-600 hover:bg-blue-50 rounded-lg font-medium transition-all duration-200"
+                                            >
+                                                <CalendarIcon className="w-4 h-4" />
+                                                My Rooms
+                                            </Link>
+                                            <Link
+                                                href="/room"
+                                                className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-lg font-medium hover:shadow-lg transition-all duration-200"
+                                            >
+                                                <PlusIcon className="w-4 h-4" />
+                                                Create Room
+                                            </Link>
+                                        </>
                                     )}
                                     
                                     {currentAccount ? (
@@ -121,14 +130,24 @@ export default function Navbar() {
                                 ) : (
                                     <>
                                         {currentAccount && (
-                                            <Link
-                                                href="/room"
-                                                className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-lg font-medium hover:shadow-lg transition-all duration-200"
-                                                onClick={() => setIsMobileMenuOpen(false)}
-                                            >
-                                                <PlusIcon className="w-4 h-4" />
-                                                Create Room
-                                            </Link>
+                                            <>
+                                                <Link
+                                                    href="/my-rooms"
+                                                    className="flex items-center gap-2 px-4 py-2 text-gray-700 hover:text-blue-600 hover:bg-blue-50 rounded-lg font-medium transition-all duration-200"
+                                                    onClick={() => setIsMobileMenuOpen(false)}
+                                                >
+                                                    <CalendarIcon className="w-4 h-4" />
+                                                    My Rooms
+                                                </Link>
+                                                <Link
+                                                    href="/room"
+                                                    className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-lg font-medium hover:shadow-lg transition-all duration-200"
+                                                    onClick={() => setIsMobileMenuOpen(false)}
+                                                >
+                                                    <PlusIcon className="w-4 h-4" />
+                                                    Create Room
+                                                </Link>
+                                            </>
                                         )}
                                         
                                         {currentAccount ? (

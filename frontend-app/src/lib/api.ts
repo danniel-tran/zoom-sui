@@ -9,6 +9,7 @@ interface CreateRoomRequest {
   initialParticipants: string[];
   requireApproval: boolean;
   walletAddress: string;
+  onchainObjectId: string;
 }
 
 interface CreateRoomResponse {
@@ -51,6 +52,23 @@ interface ApproveGuestResponse {
     walletAddress: string;
     status: string;
   };
+}
+
+interface RoomListItem {
+  id: string;
+  onchainObjectId: string;
+  title: string;
+  requireApproval: boolean;
+  attendanceCount: number;
+  memberCount: number;
+  pendingApprovals: number;
+  createdAt: string;
+  startTime: string | null;
+  endTime: string | null;
+}
+
+interface GetMyRoomsResponse {
+  rooms: RoomListItem[];
 }
 
 class ApiClient {
@@ -102,6 +120,14 @@ class ApiClient {
       '/rooms',
       'POST',
       data
+    );
+  }
+
+  async getMyRooms(walletAddress: string): Promise<GetMyRoomsResponse> {
+    // No token required - wallet address in query is sufficient
+    return this.request<GetMyRoomsResponse>(
+      `/rooms?walletAddress=${encodeURIComponent(walletAddress)}`,
+      'GET'
     );
   }
 

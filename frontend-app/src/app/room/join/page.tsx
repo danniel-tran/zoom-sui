@@ -13,8 +13,8 @@ import {
     ChevronRightIcon
 } from '@radix-ui/react-icons';
 
-// TODO: Replace with deployed package ID
-const PACKAGE_ID = process.env.NEXT_PUBLIC_PACKAGE_ID || 'YOUR_PACKAGE_ID';
+// Package ID from environment variable
+const PACKAGE_ID = process.env.NEXT_PUBLIC_PACKAGE_ID || '';
 
 function JoinRoomPageContent() {
     const router = useRouter();

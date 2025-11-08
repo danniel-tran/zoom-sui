@@ -271,33 +271,69 @@ const CallingPage = () => {
         />
 
         {/* Main stage */}
-        <div className="max-w-6xl mx-auto px-4 py-4">
-          <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 md:grid-cols-3">
-            {/* Self view */}
-            <div onDoubleClick={() => togglePin('you')} className="cursor-pointer">
-              <VideoFeed
-                stream={localStream}
-                label="You"
-                audioMuted={!audioEnabled}
-                videoMuted={!videoEnabled}
-                pinned={pinnedId === 'you'}
-              />
+        <div className="max-w-7xl mx-auto px-4 py-4">
+          {isSharing ? (
+            <div className="grid grid-cols-12 gap-4">
+              <div className="col-span-9">
+                <div className="border border-gray-800 rounded-lg p-1 bg-black">
+                  <VideoFeed stream={shareStream} label="Your Screen" heightClass="h-[460px]" />
+                </div>
+              </div>
+              <div className="col-span-3 flex flex-col gap-3">
+                <div onDoubleClick={() => togglePin('you')} className="cursor-pointer">
+                  <div className="border border-gray-800 rounded-lg p-1 bg-black">
+                    <VideoFeed
+                      stream={localStream}
+                      label="You"
+                      audioMuted={!audioEnabled}
+                      videoMuted={!videoEnabled}
+                      pinned={pinnedId === 'you'}
+                      heightClass="h-40"
+                    />
+                  </div>
+                </div>
+                <div onDoubleClick={() => togglePin('peer')} className="cursor-pointer">
+                  <div className="border border-gray-800 rounded-lg p-1 bg-black">
+                    <VideoFeed
+                      stream={remoteStream}
+                      label="Peer"
+                      audioMuted={false}
+                      videoMuted={false}
+                      pinned={pinnedId === 'peer'}
+                      heightClass="h-40"
+                    />
+                  </div>
+                </div>
+              </div>
             </div>
-            {/* Peer view */}
-            <div onDoubleClick={() => togglePin('peer')} className="cursor-pointer">
-              <VideoFeed
-                stream={remoteStream}
-                label="Peer"
-                audioMuted={false}
-                videoMuted={false}
-                pinned={pinnedId === 'peer'}
-              />
+          ) : (
+            <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+              <div onDoubleClick={() => togglePin('you')} className="cursor-pointer">
+                <div className="border border-gray-800 rounded-lg p-1 bg-black">
+                  <VideoFeed
+                    stream={localStream}
+                    label="You"
+                    audioMuted={!audioEnabled}
+                    videoMuted={!videoEnabled}
+                    pinned={pinnedId === 'you'}
+                    heightClass="h-64"
+                  />
+                </div>
+              </div>
+              <div onDoubleClick={() => togglePin('peer')} className="cursor-pointer">
+                <div className="border border-gray-800 rounded-lg p-1 bg-black">
+                  <VideoFeed
+                    stream={remoteStream}
+                    label="Peer"
+                    audioMuted={false}
+                    videoMuted={false}
+                    pinned={pinnedId === 'peer'}
+                    heightClass="h-64"
+                  />
+                </div>
+              </div>
             </div>
-            {/* When sharing, show a tile */}
-            {isSharing && (
-              <VideoFeed stream={shareStream} label="Your Screen" />
-            )}
-          </div>
+          )}
         </div>
 
         {/* Dock controls */}
