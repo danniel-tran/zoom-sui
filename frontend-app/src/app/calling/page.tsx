@@ -317,9 +317,8 @@ const CallingPage = () => {
         console.error('[ICE] Error fetching candidates:', err);
       }
     }, 1500);
-    // Save as a second polling reference
-    // We use one ref; this simple approach is fine for dev
-    pollingRef.current = intv as unknown as NodeJS.Timeout;
+    // Save to candidate polling reference (separate from offer/answer polling)
+    candidatePollingRef.current = intv as unknown as NodeJS.Timeout;
   };
 
   const stopPolling = () => {

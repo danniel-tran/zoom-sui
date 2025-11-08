@@ -70,11 +70,13 @@ router.get('/:roomId/candidates', (req: Request, res: Response) => {
   const { role } = req.query as { role?: 'host' | 'guest' };
   const r = rooms[roomId];
   if (!r || !role) return res.status(404).json({ error: 'No candidates or role not provided' });
-  const list = role === 'host' ? r.guestCandidates : r.hostCandidates;
+  // role param indicates which role's candidates to fetch
+  // if role=host, fetch host's candidates; if role=guest, fetch guest's candidates
+  const list = role === 'host' ? r.hostCandidates : r.guestCandidates;
   // return and clear to avoid duplicates
   const out = [...list];
-  if (role === 'host') r.guestCandidates = [];
-  else r.hostCandidates = [];
+  if (role === 'host') r.hostCandidates = [];
+  else r.guestCandidates = [];
   res.json({ candidates: out });
 });
 
