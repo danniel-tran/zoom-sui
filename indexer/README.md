@@ -114,24 +114,24 @@ cargo run -- \
 
 ### meeting_rooms Table
 
-| Column | Type | Description |
-|--------|------|-------------|
-| id | BIGSERIAL | Primary key |
-| room_id | VARCHAR(66) | Unique Sui object ID |
-| title | TEXT | Meeting title |
-| hosts | VARCHAR[] | Array of host addresses |
-| seal_policy_id | VARCHAR(66) | Seal policy ID (meeting code) |
-| status | SMALLINT | 1=scheduled, 2=active, 3=ended |
-| max_participants | BIGINT | Maximum allowed participants |
-| require_approval | BOOLEAN | Whether approval is required |
-| participant_count | INTEGER | Current number of participants |
-| created_at | BIGINT | Creation timestamp (ms) |
-| started_at | BIGINT | Start timestamp (ms) |
-| ended_at | BIGINT | End timestamp (ms) |
-| checkpoint_sequence_number | BIGINT | Sui checkpoint number |
-| transaction_digest | VARCHAR(64) | Transaction hash |
-| indexed_at | TIMESTAMP | When indexed |
-| updated_at | TIMESTAMP | Last updated |
+| Column                     | Type        | Description                    |
+| -------------------------- | ----------- | ------------------------------ |
+| id                         | BIGSERIAL   | Primary key                    |
+| room_id                    | VARCHAR(66) | Unique Sui object ID           |
+| title                      | TEXT        | Meeting title                  |
+| hosts                      | VARCHAR[]   | Array of host addresses        |
+| seal_policy_id             | VARCHAR(66) | Seal policy ID (meeting code)  |
+| status                     | SMALLINT    | 1=scheduled, 2=active, 3=ended |
+| max_participants           | BIGINT      | Maximum allowed participants   |
+| require_approval           | BOOLEAN     | Whether approval is required   |
+| participant_count          | INTEGER     | Current number of participants |
+| created_at                 | BIGINT      | Creation timestamp (ms)        |
+| started_at                 | BIGINT      | Start timestamp (ms)           |
+| ended_at                   | BIGINT      | End timestamp (ms)             |
+| checkpoint_sequence_number | BIGINT      | Sui checkpoint number          |
+| transaction_digest         | VARCHAR(64) | Transaction hash               |
+| indexed_at                 | TIMESTAMP   | When indexed                   |
+| updated_at                 | TIMESTAMP   | Last updated                   |
 
 ## Querying Data
 
@@ -407,3 +407,17 @@ MIT
 ## Support
 
 For issues or questions, open an issue on GitHub.
+
+
+### Inder docker run
+docker run -d --name suimeet-indexer -e DATABASE_URL="postgresql://postgres:postgres@127.0.0.1:5432/suimeet_indexer" -e SUIMEET_PACKAGE_ID="0x2ae6634f94991f61b303eedf0c310dd54134edaf36a3c30b2d5581867817f485" -e RPC_API_URL="https://fullnode.testnet.sui.io:443" indexer
+
+## Synchronize Database Schema to Backend
+If indexer change db schema, please run this following command to sync schema model of backend. (Only reset database)
+1. You need do this first `cd ./backend`.
+2. Generate Sql migrate
+npx prisma migrate dev --create-only --name your-migration-name
+3. Scafolding the database schema to schema model backend
+npx prisma db pull 
+4. Resolve the new migration 
+npx prisma migrate resolve --applied 0_init

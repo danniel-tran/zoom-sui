@@ -9,7 +9,7 @@ export type AuthMethod = 'wallet' | 'zklogin' | null;
 
 interface AuthContextType {
     // Common properties
-    isAuthenticated: boolean;
+    isWalletConnected: boolean;
     isConnecting: boolean;  // Loading state for auto-connect
     address: string | null;
     balance: string | null;
@@ -146,12 +146,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         localStorage.removeItem('zkLoginAddress');
     };
 
-    const isAuthenticated = !!address || isWalletAuthenticated;
+    const isWalletConnected = !!address || isWalletAuthenticated;
 
     return (
         <AuthContext.Provider
             value={{
-                isAuthenticated,
+                isWalletConnected,
                 isConnecting,
                 address,
                 balance,

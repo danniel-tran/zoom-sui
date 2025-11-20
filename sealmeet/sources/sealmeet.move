@@ -322,6 +322,14 @@ public fun add_new_host(
     transfer::transfer(new_host_cap, new_host);
 }
 
+public entry fun seal_approve_for_room(
+    id: vector<u8>,
+    room: &MeetingRoom,
+    clock: &Clock
+): bool {
+    seal_approve_whitelist::seal_approve(id, &room.seal_policy, clock)
+}
+
 /// Start the room - transition from scheduled to active (requires HostCap)
 public fun start_room(
     host_cap: &HostCap,

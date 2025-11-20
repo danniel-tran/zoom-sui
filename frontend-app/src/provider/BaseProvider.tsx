@@ -2,7 +2,7 @@
 'use client';
 
 import { SuiClientProvider, WalletProvider, createNetworkConfig, lightTheme } from '@mysten/dapp-kit';
-import { getFullnodeUrl } from '@mysten/sui.js/client';
+import { getFullnodeUrl } from '@mysten/sui/client';
 import { Theme } from '@radix-ui/themes';
 import { GoogleOAuthProvider } from '@react-oauth/google';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';

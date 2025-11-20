@@ -135,6 +135,79 @@ router.get("/", async (req: Request, res: Response) => {
 });
 
 /**
+ * POST /api/rooms
+ * Create room record in backend (room is already created on-chain)
+ * This endpoint acknowledges the on-chain creation and waits for indexer to sync
+ */
+router.post("/", async (req: Request, res: Response) => {
+  try {
+    const {
+      title,
+      description,
+      maxParticipants,
+      initialParticipants,
+      requireApproval,
+      walletAddress,
+      onchainObjectId,
+      hostCapId,
+    } = req.body;
+
+    // Validate required fields
+    if (!title || !onchainObjectId || !walletAddress) {
+      return res.status(400).json({
+        error: "Missing required fields: title, onchainObjectId, walletAddress",
+      });
+    }
+
+    // Validate onchainObjectId format (should be a Sui object ID)
+    if (!onchainObjectId.startsWith("0x") || onchainObjectId.length !== 66) {
+      return res.status(400).json({
+        error: "Invalid onchainObjectId format",
+      });
+    }
+
+    // Check if room already exists (indexer may have already indexed it)
+    const existingRoom = await prisma.meetingRoom.findUnique({
+      where: { roomId: onchainObjectId },
+    });
+
+    if (existingRoom) {
+      // Room already indexed, return success
+      return res.json({
+        room: {
+          id: existingRoom.roomId,
+          onchainObjectId: existingRoom.roomId,
+          title: existingRoom.title,
+          requireApproval: existingRoom.requireApproval,
+          createdAt: unixToDate(existingRoom.createdAt),
+        },
+        memberships: existingRoom.participantCount,
+        indexed: true,
+      });
+    }
+
+    // Room not yet indexed - this is normal, indexer will pick it up
+    // Return success response acknowledging the creation
+    // The frontend can poll GET /api/rooms/:roomId to check when it's indexed
+    res.json({
+      room: {
+        id: onchainObjectId,
+        onchainObjectId: onchainObjectId,
+        title: title,
+        requireApproval: requireApproval || false,
+        createdAt: new Date(),
+      },
+      memberships: initialParticipants?.length || 0,
+      indexed: false,
+      message: "Room creation acknowledged. Waiting for indexer to sync...",
+    });
+  } catch (error) {
+    console.error("Error creating room:", error);
+    res.status(500).json({ error: "Failed to create room record" });
+  }
+});
+
+/**
  * GET /api/rooms/:roomId
  * Get room details by roomId (blockchain object ID)
  */

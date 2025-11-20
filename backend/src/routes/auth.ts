@@ -61,6 +61,7 @@ router.post('/verify', async (req: Request, res: Response) => {
       },
       orderBy: { createdAt: 'desc' },
     });
+    
 
     if (!nonceRecord) {
       return res.status(400).json({ error: 'Invalid or expired nonce' });
@@ -112,6 +113,7 @@ router.post('/verify', async (req: Request, res: Response) => {
         walletId: wallet.id,
         jwtId: crypto.randomUUID(),
         expiresAt,
+        status: 'active',
       },
     });
 

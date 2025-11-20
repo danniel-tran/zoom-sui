@@ -61,14 +61,14 @@ export default function Navbar() {
                                     {currentAccount && (
                                         <>
                                             <Link
-                                                href="/my-rooms"
+                                                href="/room"
                                                 className="flex items-center gap-2 px-4 py-2 text-gray-700 hover:text-blue-600 hover:bg-blue-50 rounded-lg font-medium transition-all duration-200"
                                             >
                                                 <CalendarIcon className="w-4 h-4" />
                                                 My Rooms
                                             </Link>
                                             <Link
-                                                href="/room"
+                                                href="/room/create"
                                                 className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-lg font-medium hover:shadow-lg transition-all duration-200"
                                             >
                                                 <PlusIcon className="w-4 h-4" />
@@ -132,7 +132,7 @@ export default function Navbar() {
                                         {currentAccount && (
                                             <>
                                                 <Link
-                                                    href="/my-rooms"
+                                                    href="/room"
                                                     className="flex items-center gap-2 px-4 py-2 text-gray-700 hover:text-blue-600 hover:bg-blue-50 rounded-lg font-medium transition-all duration-200"
                                                     onClick={() => setIsMobileMenuOpen(false)}
                                                 >
@@ -140,7 +140,7 @@ export default function Navbar() {
                                                     My Rooms
                                                 </Link>
                                                 <Link
-                                                    href="/room"
+                                                    href="/room/create"
                                                     className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-lg font-medium hover:shadow-lg transition-all duration-200"
                                                     onClick={() => setIsMobileMenuOpen(false)}
                                                 >

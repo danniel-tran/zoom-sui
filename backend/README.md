@@ -75,4 +75,3 @@ See `prisma/schema.prisma` for full schema with:
 - Room & Membership tracking
 - POAP minting records
 - P2P session logs
-

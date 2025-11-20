@@ -12,6 +12,7 @@ import ScreenShareModal from '@/components/calling/ScreenShareModal';
 import { uploadToWalrus } from '@/lib/walrus';
 import { useSuiClient, useSignAndExecuteTransaction, useCurrentAccount } from '@mysten/dapp-kit';
 import { Transaction } from '@mysten/sui/transactions';
+import { SUI_CLOCK_OBJECT_ID } from '@mysten/sui/utils';
 
 const ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
@@ -28,7 +29,7 @@ const CallingPage = () => {
 
   const PACKAGE_ID = process.env.NEXT_PUBLIC_PACKAGE_ID || '';
   const REGISTRY_OBJECT_ID = process.env.NEXT_PUBLIC_REGISTRY_ID || '';
-  const CLOCK_OBJECT_ID = '0x6';
+  const CLOCK_OBJECT_ID = SUI_CLOCK_OBJECT_ID;
 
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
@@ -404,7 +405,7 @@ const CallingPage = () => {
       if (role === 'host' && roomId) {
         router.push(`/room/${roomId}`);
       } else {
-        router.push('/my-rooms');
+        router.push('/room');
       }
     } catch (e) {
       console.error('[EndCall] Error ending call:', e);
@@ -412,7 +413,7 @@ const CallingPage = () => {
       if (role === 'host' && roomId) {
         router.push(`/room/${roomId}`);
       } else {
-        router.push('/my-rooms');
+        router.push('/room');
       }
     }
   };
