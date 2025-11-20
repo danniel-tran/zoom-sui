@@ -40,13 +40,13 @@ export function useSealAuth() {
 
       if (roomObject.data.content && 'fields' in roomObject.data.content) {
         const fields = roomObject.data.content.fields as any;
-        
+
         // Try to get seal_policy_id from room fields
         if (fields.seal_policy_id) {
           console.log(`Found seal_policy_id from room: ${fields.seal_policy_id}`);
           return fields.seal_policy_id;
         }
-        
+
         // If seal_policy_id is not directly available, try to get it from embedded seal_policy
         if (fields.seal_policy) {
           if (typeof fields.seal_policy === 'object') {
@@ -63,11 +63,11 @@ export function useSealAuth() {
             return fields.seal_policy;
           }
         }
-        
+
         console.warn('Could not find seal_policy_id in room fields. Available fields:', Object.keys(fields));
         return null;
       }
-      
+
       console.warn('Room object does not have content fields');
       return null;
     } catch (err) {
@@ -92,11 +92,12 @@ export function useSealAuth() {
     try {
       // Create SessionKey instance - we'll manually sign the personal message
       // First create it with a temporary signer, then we'll override with the actual signature
+      // Type assertion needed due to version mismatch between @mysten/sui and @mysten/seal
       const key = await SessionKey.create({
         address: currentAccount.address,
         packageId: packageId,
         ttlMin: ttlMin,
-        suiClient: suiClient,
+        suiClient: suiClient as any,
         mvrName
       });
 
@@ -119,7 +120,7 @@ export function useSealAuth() {
       console.error('Error creating SessionKey:', err);
       return null;
     }
-  }, [currentAccount, suiClient, signPersonalMessage]);
+  }, [currentAccount, suiClient, signPersonalMessage, mvrName]);
 
   /**
    * Validate access to a Seal policy
@@ -144,8 +145,8 @@ export function useSealAuth() {
     try {
       // Fetch the actual seal_policy_id from the room object
       // const actualPolicyId = await getSealPolicyIdFromRoom(sealPolicyId);
-      
-      
+
+
       // if (!actualPolicyId) {
       //   const errorMsg = `Could not find seal_policy_id in room ${sealPolicyId}`;
       //   setError(errorMsg);
@@ -166,6 +167,9 @@ export function useSealAuth() {
           setIsValidating(false);
           return false;
         }
+      }
+      else {
+        console.error('SessionKey not exists');
       }
 
       // Validate access using Seal SDK with the actual policy ID
