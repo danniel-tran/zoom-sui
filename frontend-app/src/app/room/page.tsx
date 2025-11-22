@@ -109,12 +109,12 @@ export default function MyRoomsPage() {
                             <p className="text-gray-600 text-center">
                                 Please connect your wallet to view your rooms
                             </p>
-                                <button
+                            <button
                                 onClick={() => router.push('/room/create')}
                                 className="px-6 py-3 bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-lg font-medium hover:shadow-lg transition-all"
                             >
                                 Connect Wallet
-                                            </button>
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -122,10 +122,10 @@ export default function MyRoomsPage() {
         );
     }
 
-        return (
+    return (
         <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-8">
             <div className="max-w-6xl mx-auto">
-                    {/* Header */}
+                {/* Header */}
                 <div className="flex flex-col gap-4 mb-6">
                     <div className="flex justify-between items-center">
                         <h1 className="text-4xl font-bold text-gray-900">My Meeting Rooms</h1>
@@ -139,8 +139,8 @@ export default function MyRoomsPage() {
                     </div>
                     <p className="text-gray-600 text-sm">
                         View and manage all meeting rooms you've created
-                                </p>
-                            </div>
+                    </p>
+                </div>
 
                 {/* Error Message */}
                 {error && (
@@ -150,8 +150,8 @@ export default function MyRoomsPage() {
                             <h3 className="font-semibold text-red-900">Error</h3>
                             <p className="text-sm text-red-700">{error}</p>
                         </div>
-                                </div>
-                            )}
+                    </div>
+                )}
 
                 {/* Loading State */}
                 {loading && (
@@ -160,8 +160,8 @@ export default function MyRoomsPage() {
                             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
                             <p className="text-gray-600">Loading your rooms...</p>
                         </div>
-                        </div>
-                    )}
+                    </div>
+                )}
 
                 {/* Empty State */}
                 {!loading && !error && rooms.length === 0 && (
@@ -181,8 +181,8 @@ export default function MyRoomsPage() {
                                 Create Your First Room
                             </button>
                         </div>
-                        </div>
-                    )}
+                    </div>
+                )}
 
                 {/* Rooms List */}
                 {!loading && rooms.length > 0 && (
@@ -197,14 +197,14 @@ export default function MyRoomsPage() {
                                         {/* Room Header */}
                                         <div className="flex justify-between items-start">
                                             <div className="flex flex-col gap-2 flex-1">
-                                        <button
+                                                <button
                                                     onClick={() => router.push(`/room/edit/${room.roomId}`)}
                                                     className="text-left"
-                                        >
+                                                >
                                                     <h2 className="text-2xl font-bold text-gray-900 hover:text-blue-600 transition-colors">
                                                         {room.title}
                                                     </h2>
-                                        </button>
+                                                </button>
                                                 <div className="flex gap-3 items-center flex-wrap">
                                                     {room.requireApproval && (
                                                         <span className="px-2 py-1 bg-orange-100 text-orange-700 rounded text-xs font-medium">
@@ -221,10 +221,10 @@ export default function MyRoomsPage() {
                                                             {room.pendingApprovals} Pending
                                                         </span>
                                                     )}
-                                    </div>
-                                </div>
-                                    <div className="flex gap-2">
-                                        <button
+                                                </div>
+                                            </div>
+                                            <div className="flex gap-2">
+                                                <button
                                                     className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
                                                     onClick={(e) => {
                                                         e.stopPropagation();
@@ -232,8 +232,8 @@ export default function MyRoomsPage() {
                                                     }}
                                                 >
                                                     View Details
-                                        </button>
-                                    <button
+                                                </button>
+                                                <button
                                                     className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
                                                     onClick={(e) => {
                                                         e.stopPropagation();
@@ -242,20 +242,20 @@ export default function MyRoomsPage() {
                                                 >
                                                     <ExternalLinkIcon width="14" height="14" />
                                                     Explorer
-                                    </button>
-                                    <button
+                                                </button>
+                                                <button
                                                     className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
                                                     onClick={(e) => {
                                                         e.stopPropagation();
-                                                        router.push(`/room/join?roomId=${room.roomId}&role=host`);
-                                                        // router.push(`/calling?roomId=${room.roomId}&role=host`);
+                                                        router.push(`/room/join?roomId=${room.roomId}`);
+                                                        // router.push(`/calling?roomId=${room.roomId}`);
                                                     }}
                                                 >
                                                     <ArrowRightIcon width="14" height="14" />
                                                     Join
-                                    </button>
-                                </div>
-                            </div>
+                                                </button>
+                                            </div>
+                                        </div>
 
                                         <div className="border-t border-gray-200"></div>
 
@@ -266,7 +266,7 @@ export default function MyRoomsPage() {
                                                 <span className="text-sm text-gray-600">
                                                     {room.participantCount} {room.participantCount === 1 ? 'member' : 'members'}
                                                 </span>
-                                    </div>
+                                            </div>
                                             <div className="flex gap-2 items-center">
                                                 <ClockIcon width="16" height="16" className="text-gray-400" />
                                                 <span className="text-sm text-gray-600">
@@ -310,18 +310,18 @@ export default function MyRoomsPage() {
                                                             <CopyIcon width="14" height="14" />
                                                         )}
                                                     </button>
-                            </div>
-                        </div>
+                                                </div>
+                                            </div>
                                             <div className="flex flex-col gap-2">
                                                 <span className="text-sm font-medium text-gray-600">
                                                     Invite Link
-                                </span>
+                                                </span>
                                                 <div className="flex gap-2 items-center">
                                                     <span
                                                         className="text-xs font-mono break-all flex-1 text-blue-600"
                                                     >
                                                         {inviteLink}
-                                </span>
+                                                    </span>
                                                     <button
                                                         className="p-1 text-gray-500 hover:text-gray-700 transition-colors"
                                                         onClick={(e) => {
@@ -335,14 +335,14 @@ export default function MyRoomsPage() {
                                                             <CopyIcon width="14" height="14" />
                                                         )}
                                                     </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        );
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            );
                         })}
-                </div>
+                    </div>
                 )}
             </div>
         </div>

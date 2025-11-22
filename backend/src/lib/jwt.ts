@@ -1,4 +1,4 @@
-import jwt from 'jsonwebtoken';
+import jwt, { SignOptions } from 'jsonwebtoken';
 import { config } from '../config';
 import { JWTPayload, SessionData } from '../types';
 
@@ -6,21 +6,23 @@ import { JWTPayload, SessionData } from '../types';
  * Generate JWT access token
  */
 export function generateAccessToken(payload: Omit<JWTPayload, 'iat' | 'exp'>): string {
-  return jwt.sign(payload, config.jwtSecret, {
-    expiresIn: config.jwtExpiresIn,
-  });
+  const options: SignOptions = {
+    expiresIn: config.jwtExpiresIn as any,
+  };
+  return jwt.sign(payload, config.jwtSecret, options);
 }
 
 /**
  * Generate refresh token
  */
 export function generateRefreshToken(sessionId: string): string {
+  const options: SignOptions = {
+    expiresIn: config.refreshTokenExpiresIn as any,
+  };
   return jwt.sign(
     { sessionId, type: 'refresh' },
     config.jwtSecret,
-    {
-      expiresIn: config.refreshTokenExpiresIn,
-    }
+    options
   );
 }
 

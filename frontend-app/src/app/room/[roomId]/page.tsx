@@ -505,7 +505,7 @@ function RoomDetailPageContent() {
                                 Manage Room
                             </button>
                             <button
-                                onClick={() => router.push(`/calling?roomId=${roomId}&role=host`)}
+                                onClick={() => router.push(`/calling?roomId=${roomId}`)}
                                 className="flex-1 px-6 py-3 bg-green-500 text-white rounded-lg font-medium hover:bg-green-600 transition-colors"
                             >
                                 Start Meeting
@@ -517,7 +517,7 @@ function RoomDetailPageContent() {
                 {!isHost && userHasAccess && (
                     <div className="bg-white rounded-xl shadow-lg p-6">
                         <button
-                            onClick={() => router.push(`/calling?roomId=${roomId}&role=guest`)}
+                            onClick={() => router.push(`/calling?roomId=${roomId}`)}
                             className="w-full px-6 py-3 bg-blue-500 text-white rounded-lg font-medium hover:bg-blue-600 transition-colors"
                         >
                             Join Meeting

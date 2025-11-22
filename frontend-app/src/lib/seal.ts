@@ -8,7 +8,7 @@ import { SealClient, SessionKey } from '@mysten/seal';
 import { SuiClient } from '@mysten/sui/client';
 import { SUI_CLOCK_OBJECT_ID, fromHex } from '@mysten/sui/utils';
 import { Transaction } from '@mysten/sui/transactions';
-import { MoveCallConstructor } from '@/general/ultils';
+import { bcs } from '@mysten/sui/bcs';
 
 
 // Seal Package IDs (from Seal documentation)
@@ -109,19 +109,50 @@ export async function validateSealAccessWithSessionKey(
     tx.setGasBudget(100_000_000);
 
     const clock = tx.object(SUI_CLOCK_OBJECT_ID);
-    const room = tx.object(roomId); // This should be the actual policy object ID
-    const userAddressBytes = Array.from(fromHex(userAddress)) as number[];
+    const room = tx.object(roomId); // This should be the room object ID (not policy ID)
+
+    // The Move function expects BCS-encoded address in vector<u8>
+    // The seal_approve function does: bcs::new(id).peel_address()
+    // We need to pass BCS-encoded address bytes
+    // Try using the BCS serializer - SerializedBcs should have the bytes
+    let addressBytesArray: number[];
+    try {
+      const addressBytesSerialized = bcs.Address.serialize(userAddress);
+      // SerializedBcs is a Uint8Array-like object, try to extract bytes
+      const serialized = addressBytesSerialized as any;
+
+      // Check various ways to get bytes
+      let addressBytes: Uint8Array;
+      if (serialized instanceof Uint8Array) {
+        addressBytes = serialized;
+      } else if (Array.isArray(serialized)) {
+        addressBytes = new Uint8Array(serialized);
+      } else if (serialized.bytes) {
+        addressBytes = serialized.bytes instanceof Uint8Array ? serialized.bytes : new Uint8Array(serialized.bytes);
+      } else {
+        // Fallback: use raw address bytes (Move will BCS-decode)
+        addressBytes = fromHex(userAddress);
+      }
+
+      addressBytesArray = Array.from(addressBytes) as number[];
+    } catch (bcsError) {
+      console.error('BCS encoding error, using raw bytes:', bcsError);
+      // Fallback: use raw address bytes (Move's bcs::new will handle it)
+      const addressBytes = fromHex(userAddress);
+      addressBytesArray = Array.from(addressBytes) as number[];
+    }
+
     tx.moveCall({
       target: `${packageId}::sealmeet::seal_approve_for_room`,
       arguments: [
-        tx.pure.vector('u8', userAddressBytes), // Convert Uint8Array to array
+        tx.pure.vector('u8', addressBytesArray), // BCS-encoded address bytes
         room,
         clock,
       ],
     });
 
     // Build the transaction bytes
-    const txBytes = await tx.build({ client: suiClient });
+    const txBytes = await tx.build({ client: suiClient, onlyTransactionKind: true });
 
     // Use fetchKeys to trigger seal_approve evaluation
     try {
@@ -142,4 +173,3 @@ export async function validateSealAccessWithSessionKey(
     return false;
   }
 }
-

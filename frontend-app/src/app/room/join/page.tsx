@@ -3,8 +3,8 @@
 import { useState, useEffect, useCallback, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useCurrentAccount } from '@mysten/dapp-kit';
-import { 
-    LockClosedIcon, 
+import {
+    LockClosedIcon,
     CheckCircledIcon,
     CrossCircledIcon,
     UpdateIcon,
@@ -102,7 +102,7 @@ function JoinRoomPageContent() {
 
     const handleJoinMeeting = () => {
         // Navigate to calling page for video/audio meeting
-        router.push(`/calling?roomId=${roomId}&role=guest`);
+        router.push(`/calling?roomId=${roomId}`);
     };
 
     if (accessStatus === 'checking' || isValidating) {
@@ -114,7 +114,7 @@ function JoinRoomPageContent() {
                         {isValidating ? 'Signing Message for Seal Verification' : 'Verifying Access'}
                     </h2>
                     <p className="text-gray-600">
-                        {isValidating 
+                        {isValidating
                             ? 'Please sign the message in your wallet to verify access...'
                             : 'Checking your credentials against the blockchain...'
                         }
@@ -169,7 +169,7 @@ function JoinRoomPageContent() {
                                         Sealed Meeting
                                     </h3>
                                     <p className="text-xs text-blue-700">
-                                        This meeting is secured with Sui's Seal protocol. Your identity has been 
+                                        This meeting is secured with Sui's Seal protocol. Your identity has been
                                         verified against the on-chain whitelist policy.
                                     </p>
                                 </div>
