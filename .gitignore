@@ -3,3 +3,44 @@
 **/Cargo.lock
 **/build/**
 **/Move.lock
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Docker volumes
+postgres_data/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Database
+*.db
+*.sqlite
+
+# Node
+node_modules/
+npm-debug.log
+.next/
+dist/
+build/
+
+# Rust
+target/
+Cargo.lock
+
+# Docker
+docker-compose.override.yml
+backend_indexer/
+claude-code/

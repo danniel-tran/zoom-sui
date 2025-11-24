@@ -31,7 +31,7 @@ export default function HomePage() {
               </div>
             ) : currentAccount ? (
               <Link 
-                href="/room" 
+                href="/room/create" 
                 className="flex items-center gap-2 px-8 py-4 bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-xl font-semibold text-lg hover:shadow-xl transition-all duration-200"
               >
                 <PlusIcon className="w-5 h-5" />
@@ -101,7 +101,7 @@ export default function HomePage() {
             </div>
           ) : currentAccount ? (
             <Link 
-              href="/room" 
+              href="/room/create" 
               className="inline-flex items-center gap-2 px-8 py-4 bg-white text-blue-600 rounded-xl font-semibold text-lg hover:shadow-xl transition-all duration-200"
             >
               <PlusIcon className="w-5 h-5" />

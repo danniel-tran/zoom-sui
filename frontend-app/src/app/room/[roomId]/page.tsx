@@ -2,7 +2,7 @@
 
 import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import { useSuiClient, useCurrentAccount } from '@mysten/dapp-kit';
+import { useSuiClient, useCurrentAccount, useSignAndExecuteTransaction } from '@mysten/dapp-kit';
 import {
     ArrowLeftIcon,
     CopyIcon,
@@ -14,10 +14,12 @@ import {
     LockClosedIcon,
     ExclamationTriangleIcon,
 } from '@radix-ui/react-icons';
-import { apiClient } from '@/lib/api';
+import { Transaction } from '@mysten/sui/transactions';
+import { fromHex, SUI_CLOCK_OBJECT_ID } from '@mysten/sui/utils';
 
 // Package ID from environment variable
 const PACKAGE_ID = process.env.NEXT_PUBLIC_PACKAGE_ID || '';
+const NETWORK = (process.env.NEXT_PUBLIC_NETWORK || 'testnet') as 'testnet' | 'mainnet';
 
 function RoomDetailPageContent() {
     const router = useRouter();
@@ -31,6 +33,10 @@ function RoomDetailPageContent() {
     const [roomData, setRoomData] = useState<any>(null);
     const [error, setError] = useState('');
     const [copied, setCopied] = useState(false);
+    const [validatingAccess, setValidatingAccess] = useState(false);
+    const [hasAccess, setHasAccess] = useState<boolean | null>(null);
+
+    let { mutate: signAndExecuteTransaction } = useSignAndExecuteTransaction();
 
     useEffect(() => {
         if (roomId) {
@@ -38,11 +44,18 @@ function RoomDetailPageContent() {
         }
     }, [roomId]);
 
+    useEffect(() => {
+        if (roomData && currentAccount && !validatingAccess && hasAccess === null) {
+            validateRoomAccess();
+        }
+    }, [roomData, currentAccount]);
+
     const loadRoomData = async () => {
         if (!roomId) return;
 
         setLoading(true);
         setError('');
+        setHasAccess(null);
 
         try {
             // Fetch room data from blockchain
@@ -56,6 +69,7 @@ function RoomDetailPageContent() {
             }
 
             const fields = object.data.content.fields as any;
+            console.log('Room data:', fields);
             setRoomData(fields);
         } catch (err) {
             console.error('Failed to load room:', err);
@@ -65,16 +79,95 @@ function RoomDetailPageContent() {
         }
     };
 
+    const validateRoomAccess = async () => {
+        if (!roomData || !currentAccount || !PACKAGE_ID) {
+            // If no package ID, skip validation (development mode)
+            if (!PACKAGE_ID) {
+                console.warn('PACKAGE_ID not set, skipping Seal validation');
+                setHasAccess(true);
+                return;
+            }
+            setHasAccess(false);
+            return;
+        }
+
+        const hosts = roomData.hosts || [];
+        const isHost = hosts.includes(currentAccount.address);
+
+        // Hosts always have access
+        // if (isHost) {
+        //     setHasAccess(true);
+        //     return;
+        // }
+
+        // For non-hosts, validate using Seal
+        try {
+            setValidatingAccess(true);
+
+            // First, check whitelist from room data (fast client-side check)
+            const whitelist = roomData.seal_policy?.fields?.whitelist || [];
+            const isInWhitelist = whitelist.includes(currentAccount.address);
+
+            if (!isInWhitelist) {
+                // User is not in whitelist
+                setHasAccess(false);
+                return;
+            }
+            
+            // Construct transaction inline to avoid serialization issues
+            const tx = new Transaction();
+            tx.setSender(currentAccount.address);
+            tx.setGasBudget(100_000_000);
+            
+            // Convert address to bytes array
+            const addressBytes = Array.from(fromHex(currentAccount.address)) as number[];
+            
+            // Build the move call
+            const room = tx.object(roomId);
+            const clock = tx.object(SUI_CLOCK_OBJECT_ID);
+            tx.moveCall({
+                target: `${PACKAGE_ID}::sealmeet::seal_approve_for_room`,
+                arguments: [
+                    tx.pure.vector('u8', addressBytes),
+                    room,
+                    clock,
+                ],
+            });
+            let result = await signAndExecuteTransaction(
+                {
+                    transaction: tx,
+                },
+                {
+                    onSuccess: (result : any) => {
+                        console.log('object changes', result);
+                        let accesswhileList = result.seal_policy?.fields?.whitelist?.contains(currentAccount.address);
+                        setHasAccess(accesswhileList);
+                    },
+                    onError: (error) => {
+                        console.error('Error validating room access:', error);
+                        setHasAccess(false);
+                    },
+                },
+            );
+            console.log('signAndExecuteTransaction result', result);
+        } catch (err) {
+            console.error('Error validating room access:', err);
+            setHasAccess(false);
+        } finally {
+            setValidatingAccess(false);
+        }
+    };
+
     const copyToClipboard = (text: string) => {
         navigator.clipboard.writeText(text);
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
     };
 
-    const formatDate = (timestamp: number) => {
-        if (!timestamp || timestamp === 0) return 'Not started';
+    const formatDate = (timestamp: string) => {
+        if (!timestamp || timestamp === "0") return 'Not started';
         const date = new Date(timestamp);
-        return date.toLocaleString('en-US', {
+        return date.toLocaleString('vn-VN', {
             year: 'numeric',
             month: 'short',
             day: 'numeric',
@@ -91,14 +184,16 @@ function RoomDetailPageContent() {
         window.open(`https://suiexplorer.com/object/${roomId}?network=testnet`, '_blank');
     };
 
-    if (loading) {
+    if (loading || validatingAccess) {
         return (
             <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-8">
                 <div className="max-w-4xl mx-auto">
                     <div className="bg-white rounded-xl shadow-lg p-8">
                         <div className="flex flex-col items-center gap-4">
                             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-                            <p className="text-gray-600">Loading room details...</p>
+                            <p className="text-gray-600">
+                                {loading ? 'Loading room details...' : 'Validating access...'}
+                            </p>
                         </div>
                     </div>
                 </div>
@@ -116,7 +211,7 @@ function RoomDetailPageContent() {
                             <h2 className="text-2xl font-bold text-gray-900">Room Not Found</h2>
                             <p className="text-gray-600 text-center">{error || 'The room you are looking for does not exist.'}</p>
                             <button
-                                onClick={() => router.push('/my-rooms')}
+                                onClick={() => router.push('/room')}
                                 className="px-6 py-3 bg-blue-500 text-white rounded-lg font-medium hover:bg-blue-600 transition-colors"
                             >
                                 Back to My Rooms
@@ -128,11 +223,11 @@ function RoomDetailPageContent() {
         );
     }
 
-    const roomTitle = roomData.title 
+    const roomTitle = roomData.title
         ? (typeof roomData.title === 'string' ? roomData.title : new TextDecoder().decode(new Uint8Array(roomData.title)))
         : 'Untitled Room';
 
-    const description = roomData.description 
+    const description = roomData.description
         ? (typeof roomData.description === 'string' ? roomData.description : new TextDecoder().decode(new Uint8Array(roomData.description)))
         : null;
 
@@ -145,7 +240,7 @@ function RoomDetailPageContent() {
         3: 'Ended',
     };
     const status = statusMap[roomData.status] || 'Unknown';
-    
+
     const getStatusColorClasses = () => {
         if (roomData.status === 2) return 'bg-green-100 text-green-700';
         if (roomData.status === 3) return 'bg-gray-100 text-gray-700';
@@ -155,6 +250,62 @@ function RoomDetailPageContent() {
 
     const inviteLink = getInviteLink();
     const isHost = currentAccount && hosts.includes(currentAccount.address);
+
+    // Check access: hosts always have access, non-hosts need Seal validation
+    const userHasAccess = isHost || (currentAccount && hasAccess === true);
+    const waitingForWallet = !currentAccount && hasAccess === null;
+
+    // Show access denied if user doesn't have access and is not a host
+    if (hasAccess === true) {
+        return (
+            <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-8">
+                <div className="max-w-4xl mx-auto">
+                    <div className="bg-white rounded-xl shadow-lg p-8">
+                        <div className="flex flex-col items-center gap-4">
+                            <LockClosedIcon width="48" height="48" className="text-red-500" />
+                            <h2 className="text-2xl font-bold text-gray-900">Access Denied</h2>
+                            <p className="text-gray-600 text-center">
+                                You don't have access to this room. Please request approval from the room host.
+                            </p>
+                            <div className="flex gap-3 mt-4">
+                                <button
+                                    onClick={() => router.push('/room')}
+                                    className="px-6 py-3 bg-gray-500 text-white rounded-lg font-medium hover:bg-gray-600 transition-colors"
+                                >
+                                    Back to My Rooms
+                                </button>
+                                <button
+                                    onClick={() => router.back()}
+                                    className="px-6 py-3 bg-blue-500 text-white rounded-lg font-medium hover:bg-blue-600 transition-colors"
+                                >
+                                    Go Back
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    // Show connect wallet message if no wallet is connected
+    if (waitingForWallet && roomData.require_approval) {
+        return (
+            <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-8">
+                <div className="max-w-4xl mx-auto">
+                    <div className="bg-white rounded-xl shadow-lg p-8">
+                        <div className="flex flex-col items-center gap-4">
+                            <LockClosedIcon width="48" height="48" className="text-gray-400" />
+                            <h2 className="text-2xl font-bold text-gray-900">Connect Wallet</h2>
+                            <p className="text-gray-600 text-center">
+                                Please connect your wallet to access this room.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-8">
@@ -314,9 +465,8 @@ function RoomDetailPageContent() {
                             return (
                                 <div
                                     key={index}
-                                    className={`flex items-center justify-between p-3 rounded-lg ${
-                                        isCurrentUser ? 'bg-blue-50 border border-blue-200' : 'bg-gray-50'
-                                    }`}
+                                    className={`flex items-center justify-between p-3 rounded-lg ${isCurrentUser ? 'bg-blue-50 border border-blue-200' : 'bg-gray-50'
+                                        }`}
                                 >
                                     <div className="flex items-center gap-3">
                                         <PersonIcon width="16" height="16" className="text-gray-400" />
@@ -349,13 +499,13 @@ function RoomDetailPageContent() {
                         <h3 className="text-xl font-semibold text-gray-900 mb-4">Host Actions</h3>
                         <div className="flex gap-3">
                             <button
-                                onClick={() => router.push(`/room?roomId=${roomId}`)}
+                                onClick={() => router.push(`/room/edit/${roomId}`)}
                                 className="flex-1 px-6 py-3 bg-blue-500 text-white rounded-lg font-medium hover:bg-blue-600 transition-colors"
                             >
                                 Manage Room
                             </button>
                             <button
-                                onClick={() => router.push(`/calling?roomId=${roomId}&role=host`)}
+                                onClick={() => router.push(`/calling?roomId=${roomId}`)}
                                 className="flex-1 px-6 py-3 bg-green-500 text-white rounded-lg font-medium hover:bg-green-600 transition-colors"
                             >
                                 Start Meeting
@@ -364,14 +514,30 @@ function RoomDetailPageContent() {
                     </div>
                 )}
 
-                {!isHost && currentAccount && whitelist.includes(currentAccount.address) && (
+                {!isHost && userHasAccess && (
                     <div className="bg-white rounded-xl shadow-lg p-6">
                         <button
-                            onClick={() => router.push(`/calling?roomId=${roomId}&role=guest`)}
+                            onClick={() => router.push(`/calling?roomId=${roomId}`)}
                             className="w-full px-6 py-3 bg-blue-500 text-white rounded-lg font-medium hover:bg-blue-600 transition-colors"
                         >
                             Join Meeting
                         </button>
+                    </div>
+                )}
+
+                {!currentAccount && (
+                    <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-6">
+                        <div className="flex items-start gap-3">
+                            <ExclamationTriangleIcon width="24" height="24" className="text-yellow-600 mt-0.5" />
+                            <div>
+                                <h3 className="text-lg font-semibold text-yellow-900 mb-2">Connect Wallet Required</h3>
+                                <p className="text-yellow-700">
+                                    {roomData.require_approval
+                                        ? 'This room requires approval. Please connect your wallet to check if you have access.'
+                                        : 'Please connect your wallet to join this meeting.'}
+                                </p>
+                            </div>
+                        </div>
                     </div>
                 )}
             </div>

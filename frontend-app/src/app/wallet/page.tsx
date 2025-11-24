@@ -8,14 +8,14 @@ import Link from 'next/link';
 
 export default function WalletPage() {
     const router = useRouter();
-    const { isAuthenticated, address, balance, disconnect, authMethod, user } = useAuth();
+    const { isWalletConnected, address, balance, disconnect, authMethod, user } = useAuth();
     const [copied, setCopied] = React.useState(false);
 
     React.useEffect(() => {
-        if (!isAuthenticated) {
+        if (!isWalletConnected) {
             router.push('/login');
         }
-    }, [isAuthenticated, router]);
+    }, [isWalletConnected, router]);
 
     const handleCopyAddress = () => {
         if (address) {
@@ -30,7 +30,7 @@ export default function WalletPage() {
         router.push('/');
     };
 
-    if (!isAuthenticated) {
+    if (!isWalletConnected) {
         return null;
     }
 

@@ -42,9 +42,13 @@ export interface AutoSignResponse {
 // Types for room operations
 export interface CreateRoomRequest {
   title: string;
+  description?: string;
+  maxParticipants?: number;
   initialParticipants: string[];
   requireApproval: boolean;
   walletAddress: string;
+  onchainObjectId: string;
+  hostCapId?: string;
 }
 
 export interface ApproveGuestRequest {
