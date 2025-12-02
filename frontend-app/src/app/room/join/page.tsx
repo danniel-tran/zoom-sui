@@ -12,6 +12,8 @@ import {
     ChevronRightIcon
 } from '@radix-ui/react-icons';
 import { useSealAuth } from '@/hooks/useSealAuth';
+import { storeTokens } from '@/lib/auth-storage';
+import { apiClient } from '@/lib/api';
 
 // Package ID from environment variable
 const PACKAGE_ID = process.env.NEXT_PUBLIC_PACKAGE_ID || '';
@@ -26,6 +28,7 @@ function JoinRoomPageContent() {
         isValidating,
         hasAccess,
         error: sealError,
+        sessionKey,
     } = useSealAuth();
 
     const roomId = searchParams.get('roomId');

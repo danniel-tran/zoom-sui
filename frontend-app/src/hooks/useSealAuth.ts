@@ -3,6 +3,7 @@ import { useCurrentAccount, useSuiClient, useSignPersonalMessage } from '@mysten
 import { SessionKey } from '@mysten/seal';
 import { validateSealAccessWithSessionKey } from '@/lib/seal';
 import { useNetworkVariable } from '@/config/networkConfig';
+import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519';
 
 /**
  * Hook for managing Seal authentication
@@ -104,13 +105,20 @@ export function useSealAuth() {
       // Get the personal message from the SessionKey
       const personalMessage = key.getPersonalMessage();
 
-      // Sign the personal message using the wallet
+      // // Sign the personal message using the wallet
       const result = await signPersonalMessage({
         message: personalMessage,
       });
 
       // Set the signature on the SessionKey
       await key.setPersonalMessageSignature(result.signature);
+
+      // const ephemeralKeypair = new Ed25519Keypair();
+
+      // const signature = await ephemeralKeypair.sign(personalMessage);
+      // const messageSign = (new TextDecoder()).decode(signature);
+      // await key.setPersonalMessageSignature(messageSign);
+      //
 
       setSessionKey(key);
       return key;
