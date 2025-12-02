@@ -64,8 +64,9 @@ export function useAuth() {
       const nonce = await requestNonce(currentAccount.address);
 
       // Sign nonce (useSignPersonalMessage expects Uint8Array)
-      const messageText = `Authenticate to SuiMeet\nNonce: ${nonce}`;
-      const message = new TextEncoder().encode(messageText);
+      // const messageText = `Authenticate to SuiMeet\nNonce: ${nonce}`;
+      // Message sign authenticate to SuiMeet
+      const message = new TextEncoder().encode(nonce);
       
       // Wrap mutate in a Promise since it uses callback pattern
       const signature = await new Promise<string>((resolve, reject) => {

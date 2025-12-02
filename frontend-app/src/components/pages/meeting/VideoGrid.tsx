@@ -92,54 +92,96 @@ export default function VideoGrid({
   const totalParticipants = 1 + remotePeersList.length; // 1 (local) + remote peers
 
   // Determine grid layout based on number of participants
+  // Layout Rules:
+  // 1-2 participants: 2-column layout (large tiles)
+  // 3-4 participants: 2x2 grid
+  // 5-6 participants: 2x3 grid
+  // 7-9 participants: 3x3 grid
+  // 10+ participants: 3x4 grid (or paginated)
   let gridCols = 'grid-cols-1';
-  if (totalParticipants === 2) {
-    gridCols = 'grid-cols-1 sm:grid-cols-2';
-  } else if (totalParticipants === 3) {
-    gridCols = 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3';
-  } else if (totalParticipants === 4) {
-    gridCols = 'grid-cols-1 sm:grid-cols-2';
-  } else if (totalParticipants >= 5) {
-    gridCols = 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4';
+  let heightClass = 'h-64';
+
+  if (totalParticipants === 1) {
+    gridCols = 'grid-cols-1';
+    heightClass = 'h-[500px]'; // Large single view
+  } else if (totalParticipants === 2) {
+    gridCols = 'grid-cols-1 md:grid-cols-2'; // 2-column layout
+    heightClass = 'h-[400px]'; // Large tiles
+  } else if (totalParticipants >= 3 && totalParticipants <= 4) {
+    gridCols = 'grid-cols-2'; // 2x2 grid
+    heightClass = 'h-64';
+  } else if (totalParticipants >= 5 && totalParticipants <= 6) {
+    gridCols = 'grid-cols-2 md:grid-cols-3'; // 2x3 grid
+    heightClass = 'h-56';
+  } else if (totalParticipants >= 7 && totalParticipants <= 9) {
+    gridCols = 'grid-cols-3'; // 3x3 grid
+    heightClass = 'h-48';
+  } else {
+    gridCols = 'grid-cols-3 md:grid-cols-4'; // 3x4 grid for 10+
+    heightClass = 'h-40';
   }
+
+  // Separate local and remote participants for ordering
+  // Remote participants first, local "You" at the end (bottom-right)
+  const remoteParticipants = remotePeersList.map(([peerId, peerInfo]) => ({
+    id: peerId,
+    isLocal: false,
+    peerInfo,
+  }));
+
+  const localParticipant = {
+    id: 'you',
+    isLocal: true,
+  };
+
+  // Combine: remote first, then local (appears bottom-right in grid)
+  const allParticipants = [...remoteParticipants, localParticipant];
 
   return (
     <div className={`grid gap-4 ${gridCols}`}>
-      {/* Local participant */}
-      <div onDoubleClick={() => onTogglePin('you')} className="cursor-pointer">
-        <div className="border border-gray-800 rounded-lg p-1 bg-black">
-          <LocalVideoFeed
-            stream={localStream}
-            label="You"
-            audioEnabled={audioEnabled}
-            videoEnabled={videoEnabled}
-            pinned={pinnedId === 'you'}
-            heightClass="h-64"
-          />
-        </div>
-      </div>
-
-      {/* Remote participants */}
-      {remotePeersList.map(([peerId, peerInfo]) => (
-        <div
-          key={peerId}
-          onDoubleClick={() => onTogglePin(peerId)}
-          className="cursor-pointer"
-        >
-          <div className="border border-gray-800 rounded-lg p-1 bg-black">
-            <RemoteVideoFeed
-              stream={peerInfo.stream}
-              participantId={peerId}
-              label={peerInfo.metadata?.name || `Peer ${peerId.slice(0, 8)}...`}
-              audioMuted={false}
-              videoMuted={false}
-              pinned={pinnedId === peerId}
-              heightClass="h-64"
-              connectionState={peerInfo.connectionState}
-            />
-          </div>
-        </div>
-      ))}
+      {allParticipants.map((participant) => {
+        if (participant.isLocal) {
+          // Local participant - always last (bottom-right position)
+          return (
+            <div key="you" onDoubleClick={() => onTogglePin('you')} className="cursor-pointer group relative">
+              <div className="border border-gray-800 rounded-lg p-1 bg-black hover:border-blue-500 transition-colors">
+                <LocalVideoFeed
+                  stream={localStream}
+                  label="You"
+                  audioEnabled={audioEnabled}
+                  videoEnabled={videoEnabled}
+                  pinned={pinnedId === 'you'}
+                  heightClass={heightClass}
+                />
+              </div>
+            </div>
+          );
+        } else {
+          // Remote participants
+          const peerId = participant.id;
+          const peerInfo = participant.peerInfo!;
+          return (
+            <div
+              key={peerId}
+              onDoubleClick={() => onTogglePin(peerId)}
+              className="cursor-pointer group relative"
+            >
+              <div className="border border-gray-800 rounded-lg p-1 bg-black hover:border-gray-600 transition-colors">
+                <RemoteVideoFeed
+                  stream={peerInfo.stream}
+                  participantId={peerId}
+                  label={peerInfo.metadata?.name || `Peer ${peerId.slice(0, 8)}...`}
+                  audioMuted={false}
+                  videoMuted={false}
+                  pinned={pinnedId === peerId}
+                  heightClass={heightClass}
+                  connectionState={peerInfo.connectionState}
+                />
+              </div>
+            </div>
+          );
+        }
+      })}
 
       {/* Backward compatibility: show single remoteStream if no remotePeers provided */}
       {!remotePeers && remoteStream && (

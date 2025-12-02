@@ -15,6 +15,12 @@ const VideoIcon = ({ className }: { className?: string }) => (
   </svg>
 );
 
+const FullscreenIcon = ({ className }: { className?: string }) => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" className={className}>
+    <path d="M1.5 1a.5.5 0 0 0-.5.5v4a.5.5 0 0 1-1 0v-4A1.5 1.5 0 0 1 1.5 0h4a.5.5 0 0 1 0 1h-4zM10 .5a.5.5 0 0 1 .5-.5h4A1.5 1.5 0 0 1 16 1.5v4a.5.5 0 0 1-1 0v-4a.5.5 0 0 0-.5-.5h-4a.5.5 0 0 1-.5-.5zM.5 10a.5.5 0 0 1 .5.5v4a.5.5 0 0 0 .5.5h4a.5.5 0 0 1 0 1h-4A1.5 1.5 0 0 1 0 14.5v-4a.5.5 0 0 1 .5-.5zm15 0a.5.5 0 0 1 .5.5v4a1.5 1.5 0 0 1-1.5 1.5h-4a.5.5 0 0 1 0-1h4a.5.5 0 0 0 .5-.5v-4a.5.5 0 0 1 .5-.5z"/>
+  </svg>
+);
+
 interface LocalVideoFeedProps {
   stream?: MediaStream | null;
   label?: string;
@@ -41,8 +47,35 @@ const LocalVideoFeed: React.FC<LocalVideoFeedProps> = ({
   heightClass = 'h-64',
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const [hasVideo, setHasVideo] = useState(false);
   const [hasAudio, setHasAudio] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  // Handle fullscreen toggle
+  const toggleFullscreen = () => {
+    if (!containerRef.current) return;
+
+    if (!document.fullscreenElement) {
+      containerRef.current.requestFullscreen().catch(err => {
+        console.error('[LocalVideoFeed] Error attempting to enable fullscreen:', err);
+      });
+    } else {
+      document.exitFullscreen();
+    }
+  };
+
+  // Listen for fullscreen changes
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    };
+  }, []);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -138,7 +171,7 @@ const LocalVideoFeed: React.FC<LocalVideoFeedProps> = ({
   const showAudioMuted = !audioEnabled || !hasAudio;
 
   return (
-    <div className={`w-full ${heightClass} bg-black rounded-lg overflow-hidden relative ${borderClass}`}>
+    <div ref={containerRef} className={`w-full ${heightClass} bg-black rounded-lg overflow-hidden relative ${borderClass} group`}>
       <video
         ref={videoRef}
         className="w-full h-full object-cover"
@@ -178,6 +211,14 @@ const LocalVideoFeed: React.FC<LocalVideoFeedProps> = ({
           </span>
         )}
       </div>
+      {/* Fullscreen button - appears on hover */}
+      <button
+        onClick={toggleFullscreen}
+        className="absolute bottom-2 right-2 bg-black/60 hover:bg-black/80 text-white p-2 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+        title={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+      >
+        <FullscreenIcon className="w-4 h-4" />
+      </button>
       {reaction && (
         <div className="absolute top-2 right-2 text-3xl select-none animate-bounce">
           {reaction}
