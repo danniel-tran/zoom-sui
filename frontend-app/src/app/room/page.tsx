@@ -247,8 +247,7 @@ export default function MyRoomsPage() {
                                                     className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
                                                     onClick={(e) => {
                                                         e.stopPropagation();
-                                                        router.push(`/room/join?roomId=${room.roomId}`);
-                                                        // router.push(`/calling?roomId=${room.roomId}`);
+                                                        router.push(`/meeting/${room.roomId}`);
                                                     }}
                                                 >
                                                     <ArrowRightIcon width="14" height="14" />

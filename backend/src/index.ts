@@ -1,14 +1,17 @@
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import { createServer } from 'http';
 import { config } from './config';
 import { extractTokenFromHeader, verifyToken } from './lib/jwt';
 import { JWTPayload } from './types';
+import { WebSocketSignalingServer } from './services/websocket-signaling';
 
 // Load environment variables
 dotenv.config();
 
 const app = express();
+const httpServer = createServer(app);
 
 // Middleware
 app.use(cors({
@@ -91,13 +94,17 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
   res.status(500).json({ error: 'Internal server error' });
 });
 
+// Initialize WebSocket signaling server
+const wsSignalingServer = new WebSocketSignalingServer(httpServer);
+
 // Start server
 const PORT = config.port;
-app.listen(PORT, () => {
+httpServer.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📊 Environment: ${config.nodeEnv}`);
   console.log(`🔗 CORS Origin: ${config.corsOrigin}`);
 });
 
 export default app;
+export { wsSignalingServer };
 

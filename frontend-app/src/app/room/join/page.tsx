@@ -102,7 +102,7 @@ function JoinRoomPageContent() {
 
     const handleJoinMeeting = () => {
         // Navigate to calling page for video/audio meeting
-        router.push(`/calling?roomId=${roomId}`);
+        router.push(`/meeting/${roomId}`);
     };
 
     if (accessStatus === 'checking' || isValidating) {

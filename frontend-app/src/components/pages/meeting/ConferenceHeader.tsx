@@ -10,6 +10,7 @@ type Props = {
   onToggleRecording?: () => void;
   captionsEnabled?: boolean;
   onToggleCaptions?: () => void;
+  participantCount?: number;
 };
 
 export default function ConferenceHeader({
@@ -20,6 +21,7 @@ export default function ConferenceHeader({
   onToggleRecording,
   captionsEnabled = false,
   onToggleCaptions,
+  participantCount,
 }: Props) {
   const mins = Math.floor(elapsedSeconds / 60)
     .toString()
@@ -30,6 +32,11 @@ export default function ConferenceHeader({
     <div className="flex items-center justify-between px-4 py-2 bg-gray-900 text-white border-b border-gray-800">
       <div className="flex items-center gap-3">
         <span className="font-semibold">{meetingTitle}</span>
+        {participantCount !== undefined && (
+          <span className="text-sm text-gray-300">
+            {participantCount} {participantCount === 1 ? 'participant' : 'participants'}
+          </span>
+        )}
         <span className="text-sm text-gray-300">{mins}:{secs}</span>
         {isSecure && (
           <span title="Secure and encrypted" className="inline-flex items-center gap-1 text-green-400 text-sm">

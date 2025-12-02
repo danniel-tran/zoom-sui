@@ -390,7 +390,7 @@ function EditRoomPageContent() {
                                     Only whitelisted addresses can access this meeting
                                 </p>
                                 <button
-                                    onClick={() => router.push(`/calling?roomId=${roomId}`)}
+                                    onClick={() => router.push(`/meeting/${roomId}`)}
                                     className="w-full px-6 py-3 bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-lg font-medium hover:shadow-lg transition-all duration-200 flex items-center justify-center gap-2"
                                 >
                                     Start Meeting
