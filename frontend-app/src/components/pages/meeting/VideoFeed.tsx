@@ -24,6 +24,7 @@ interface Props {
   reaction?: string | null;
   heightClass?: string;
   isLocal?: boolean; // Whether this is the local user's video (mute audio to prevent feedback)
+  connectionState?: RTCPeerConnectionState; // Optional connection state for debugging
 }
 
 const VideoFeed: React.FC<Props> = ({
@@ -36,6 +37,7 @@ const VideoFeed: React.FC<Props> = ({
   reaction = null,
   heightClass = 'h-64',
   isLocal = false,
+  connectionState,
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [hasVideo, setHasVideo] = useState(false);
@@ -49,35 +51,76 @@ const VideoFeed: React.FC<Props> = ({
       // Set the stream
       video.srcObject = stream;
       
-      // Check if stream has video/audio tracks
-      const videoTracks = stream.getVideoTracks();
-      const audioTracks = stream.getAudioTracks();
-      setHasVideo(videoTracks.length > 0 && videoTracks[0].enabled);
-      setHasAudio(audioTracks.length > 0 && audioTracks[0].enabled);
+      // Function to update video/audio state
+      const updateTrackState = () => {
+        const videoTracks = stream.getVideoTracks();
+        const audioTracks = stream.getAudioTracks();
+        const hasVideoTrack = videoTracks.length > 0 && videoTracks.some(t => t.enabled);
+        const hasAudioTrack = audioTracks.length > 0 && audioTracks.some(t => t.enabled);
+        
+        setHasVideo(hasVideoTrack);
+        setHasAudio(hasAudioTrack);
+        
+        if (hasVideoTrack) {
+          console.log(`[VideoFeed] Video track detected for ${label || 'stream'}. Video should appear now.`);
+        }
+        if (hasAudioTrack) {
+          console.log(`[VideoFeed] Audio track detected for ${label || 'stream'}.`);
+        }
+      };
+
+      // Initial state check
+      updateTrackState();
 
       // Play the video
       video.play().catch((err) => {
         console.error('Error playing video:', err);
       });
 
-      // Handle track updates
-      const handleTrackEnded = () => {
-        setHasVideo(stream.getVideoTracks().some(t => t.enabled));
-        setHasAudio(stream.getAudioTracks().some(t => t.enabled));
+      // Handle track additions (when tracks are added to existing stream)
+      const handleAddTrack = (event: MediaStreamTrackEvent) => {
+        console.log(`[VideoFeed] Track added to stream: kind=${event.track.kind}, id=${event.track.id}, label=${label || 'unknown'}`);
+        // Update video element srcObject to ensure it picks up new tracks
+        if (video.srcObject !== stream) {
+          video.srcObject = stream;
+        }
+        updateTrackState();
+        // Try to play again in case video track was just added
+        video.play().catch((err) => {
+          console.error('Error playing video after track addition:', err);
+        });
       };
 
+      // Handle track removals
+      const handleRemoveTrack = (event: MediaStreamTrackEvent) => {
+        console.log(`[VideoFeed] Track removed from stream: kind=${event.track.kind}, id=${event.track.id}, label=${label || 'unknown'}`);
+        updateTrackState();
+      };
+
+      // Handle track state changes (ended, mute, unmute)
+      const handleTrackStateChange = () => {
+        updateTrackState();
+      };
+
+      // Add event listeners for stream-level events
+      stream.addEventListener('addtrack', handleAddTrack);
+      stream.addEventListener('removetrack', handleRemoveTrack);
+
+      // Add event listeners for individual track events
       stream.getTracks().forEach(track => {
-        track.addEventListener('ended', handleTrackEnded);
-        track.addEventListener('mute', handleTrackEnded);
-        track.addEventListener('unmute', handleTrackEnded);
+        track.addEventListener('ended', handleTrackStateChange);
+        track.addEventListener('mute', handleTrackStateChange);
+        track.addEventListener('unmute', handleTrackStateChange);
       });
 
       // Cleanup
       return () => {
+        stream.removeEventListener('addtrack', handleAddTrack);
+        stream.removeEventListener('removetrack', handleRemoveTrack);
         stream.getTracks().forEach(track => {
-          track.removeEventListener('ended', handleTrackEnded);
-          track.removeEventListener('mute', handleTrackEnded);
-          track.removeEventListener('unmute', handleTrackEnded);
+          track.removeEventListener('ended', handleTrackStateChange);
+          track.removeEventListener('mute', handleTrackStateChange);
+          track.removeEventListener('unmute', handleTrackStateChange);
         });
       };
     } else {
@@ -85,7 +128,7 @@ const VideoFeed: React.FC<Props> = ({
       setHasVideo(false);
       setHasAudio(false);
     }
-  }, [stream]);
+  }, [stream, label]);
 
   const borderClass = pinned
     ? 'ring-4 ring-blue-500'

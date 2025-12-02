@@ -204,36 +204,46 @@ class ApiClient {
     return this.request<{ accessToken: string }>('/auth/refresh', 'POST', { refreshToken });
   }
 
-  // Signaling API (development-only, in-memory)
-  async postOffer(roomId: string, sdp: string) {
-    return this.request(`/signaling/${roomId}/offer`, 'POST', { sdp });
+  // Signaling API (peer-based, symmetric)
+  async postOffer(roomId: string, sdp: string, participantId: string) {
+    return this.request(`/signaling/${roomId}/offer`, 'POST', { sdp, from: participantId });
   }
 
-  async getOffer(roomId: string): Promise<{ sdp: string; timestamp: number }> {
-    return this.request(`/signaling/${roomId}/offer`, 'GET');
+  async getOffer(roomId: string, excludeParticipantId: string): Promise<{ sdp: string; timestamp: number; from: string } | null> {
+    const url = `${API_BASE_URL}/signaling/${roomId}/offer?exclude=${excludeParticipantId}`;
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (data.error) return null;
+    return data;
   }
 
-  async postAnswer(roomId: string, sdp: string) {
-    return this.request(`/signaling/${roomId}/answer`, 'POST', { sdp });
+  async postAnswer(roomId: string, sdp: string, participantId: string) {
+    return this.request(`/signaling/${roomId}/answer`, 'POST', { sdp, from: participantId });
   }
 
-  async getAnswer(roomId: string): Promise<{ sdp: string; timestamp: number }> {
-    return this.request(`/signaling/${roomId}/answer`, 'GET');
+  async getAnswer(roomId: string, excludeParticipantId: string): Promise<{ sdp: string; timestamp: number; from: string } | null> {
+    const url = `${API_BASE_URL}/signaling/${roomId}/answer?exclude=${excludeParticipantId}`;
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (data.error) return null;
+    return data;
   }
 
-  async postCandidate(roomId: string, candidate: any, from: 'host' | 'guest') {
-    return this.request(`/signaling/${roomId}/candidates`, 'POST', { candidate, from });
+  async postCandidate(roomId: string, candidate: any, participantId: string) {
+    return this.request(`/signaling/${roomId}/candidates`, 'POST', { candidate, from: participantId });
   }
 
-  async getCandidates(roomId: string, role: 'host' | 'guest'): Promise<{ candidates: any[] }> {
-    const url = `${API_BASE_URL}/signaling/${roomId}/candidates?role=${role}`;
+  async getCandidates(roomId: string, excludeParticipantId: string): Promise<{ candidates: any[] }> {
+    const url = `${API_BASE_URL}/signaling/${roomId}/candidates?exclude=${excludeParticipantId}`;
     const res = await fetch(url);
     if (!res.ok) throw new Error(`API ${res.status}`);
     return res.json();
   }
 
-  async endCall(roomId: string, role: 'host' | 'guest') {
-    return this.request(`/signaling/${roomId}/end`, 'POST', { role });
+  async endCall(roomId: string, participantId: string) {
+    return this.request(`/signaling/${roomId}/end`, 'POST', { participantId });
   }
 }
 

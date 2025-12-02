@@ -11,7 +11,7 @@ import {
 } from '@radix-ui/react-icons';
 import { apiClient } from '@/lib/api';
 import { useAuth as useAuthContext } from '@/context/AuthContext';
-import { RoomForm, type RoomFormData, type WhitelistAddress } from '@/components/rooms/form';
+import { RoomForm, type RoomFormData, type WhitelistAddress } from '@/components/pages/rooms/form';
 
 // Package ID from environment variable
 const PACKAGE_ID = process.env.NEXT_PUBLIC_PACKAGE_ID || '';

@@ -44,12 +44,6 @@ function RoomDetailPageContent() {
         }
     }, [roomId]);
 
-    useEffect(() => {
-        if (roomData && currentAccount && !validatingAccess && hasAccess === null) {
-            validateRoomAccess();
-        }
-    }, [roomData, currentAccount]);
-
     const loadRoomData = async () => {
         if (!roomId) return;
 
@@ -76,85 +70,6 @@ function RoomDetailPageContent() {
             setError(err instanceof Error ? err.message : 'Failed to load room data');
         } finally {
             setLoading(false);
-        }
-    };
-
-    const validateRoomAccess = async () => {
-        if (!roomData || !currentAccount || !PACKAGE_ID) {
-            // If no package ID, skip validation (development mode)
-            if (!PACKAGE_ID) {
-                console.warn('PACKAGE_ID not set, skipping Seal validation');
-                setHasAccess(true);
-                return;
-            }
-            setHasAccess(false);
-            return;
-        }
-
-        const hosts = roomData.hosts || [];
-        const isHost = hosts.includes(currentAccount.address);
-
-        // Hosts always have access
-        // if (isHost) {
-        //     setHasAccess(true);
-        //     return;
-        // }
-
-        // For non-hosts, validate using Seal
-        try {
-            setValidatingAccess(true);
-
-            // First, check whitelist from room data (fast client-side check)
-            const whitelist = roomData.seal_policy?.fields?.whitelist || [];
-            const isInWhitelist = whitelist.includes(currentAccount.address);
-
-            if (!isInWhitelist) {
-                // User is not in whitelist
-                setHasAccess(false);
-                return;
-            }
-            
-            // Construct transaction inline to avoid serialization issues
-            const tx = new Transaction();
-            tx.setSender(currentAccount.address);
-            tx.setGasBudget(100_000_000);
-            
-            // Convert address to bytes array
-            const addressBytes = Array.from(fromHex(currentAccount.address)) as number[];
-            
-            // Build the move call
-            const room = tx.object(roomId);
-            const clock = tx.object(SUI_CLOCK_OBJECT_ID);
-            tx.moveCall({
-                target: `${PACKAGE_ID}::sealmeet::seal_approve_for_room`,
-                arguments: [
-                    tx.pure.vector('u8', addressBytes),
-                    room,
-                    clock,
-                ],
-            });
-            let result = await signAndExecuteTransaction(
-                {
-                    transaction: tx,
-                },
-                {
-                    onSuccess: (result : any) => {
-                        console.log('object changes', result);
-                        let accesswhileList = result.seal_policy?.fields?.whitelist?.contains(currentAccount.address);
-                        setHasAccess(accesswhileList);
-                    },
-                    onError: (error) => {
-                        console.error('Error validating room access:', error);
-                        setHasAccess(false);
-                    },
-                },
-            );
-            console.log('signAndExecuteTransaction result', result);
-        } catch (err) {
-            console.error('Error validating room access:', err);
-            setHasAccess(false);
-        } finally {
-            setValidatingAccess(false);
         }
     };
 
@@ -505,7 +420,7 @@ function RoomDetailPageContent() {
                                 Manage Room
                             </button>
                             <button
-                                onClick={() => router.push(`/calling?roomId=${roomId}`)}
+                                onClick={() => router.push(`/meeting/${roomId}`)}
                                 className="flex-1 px-6 py-3 bg-green-500 text-white rounded-lg font-medium hover:bg-green-600 transition-colors"
                             >
                                 Start Meeting
@@ -517,7 +432,7 @@ function RoomDetailPageContent() {
                 {!isHost && userHasAccess && (
                     <div className="bg-white rounded-xl shadow-lg p-6">
                         <button
-                            onClick={() => router.push(`/calling?roomId=${roomId}`)}
+                            onClick={() => router.push(`/meeting/${roomId}`)}
                             className="w-full px-6 py-3 bg-blue-500 text-white rounded-lg font-medium hover:bg-blue-600 transition-colors"
                         >
                             Join Meeting
