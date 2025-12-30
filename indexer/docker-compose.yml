@@ -1,0 +1,53 @@
+﻿services:
+
+  postgres-shadow:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: suimeet
+      POSTGRES_PASSWORD: suimeet_password
+      POSTGRES_DB: suimeet_shadow
+    ports:
+      - "5433:5432"
+  postgres:
+    image: postgres:15-alpine
+    container_name: suimeet-postgres
+    environment:
+      POSTGRES_USER: suimeet
+      POSTGRES_PASSWORD: suimeet_password
+      POSTGRES_DB: suimeet_indexer
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U suimeet"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  indexer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: suimeet-indexer
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://suimeet:suimeet_password@postgres:5432/suimeet_indexer
+      RUST_LOG: info
+      SUIMEET_PACKAGE_ID: 0x351bd7e9a14c716b05ae87739a974b64ab7266f0c91ddcbe79ded30164897b3f
+    command: [
+      # "--rpc-api-url", "https://checkpoints.testnet.sui.io",
+      # "--first-checkpoint", "263614008",
+      "--database-url", "postgresql://suimeet:suimeet_password@postgres:5432/suimeet_indexer",
+      "--suimeet-package-id", "0x868d1e6293e193431b75814779abe4ec16c2ccc79f9010134195dc376772767b",
+      "--remote-store-url", "https://checkpoints.testnet.sui.io",
+      "--first-checkpoint", "265970880",
+      # "--rpc-api-url", "https://fullnode.testnet.sui.io:443",
+
+    ]
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

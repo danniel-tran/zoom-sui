@@ -92,7 +92,7 @@ export function RoomForm({
         e.preventDefault();
         await onSubmit(formData, whitelist);
     };
-
+    console.log("isWalletConnected", isWalletConnected);
     return (
         <div className="grid md:grid-cols-2 gap-6">
             {/* Meeting Details Form */}
@@ -189,7 +189,8 @@ export function RoomForm({
                         </select>
                     </div>
 
-                    <div className="pt-4 border-t border-gray-200">
+                    {/* Host approval is now always required - checkbox hidden */}
+                    <div className="pt-4 border-t border-gray-200 hidden">
                         <label className="flex items-center gap-3 cursor-pointer">
                             <input
                                 type="checkbox"
@@ -208,7 +209,9 @@ export function RoomForm({
 
                     <button
                         type="submit"
-                        disabled={loading || whitelist.length === 0 || !isWalletConnected}
+                        disabled={loading || !isWalletConnected
+                            // || whitelist.length === 0
+                        }
                         className="w-full px-6 py-3 bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-lg font-medium hover:shadow-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                     >
                         {loading ? (

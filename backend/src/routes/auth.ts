@@ -1,10 +1,12 @@
 import { Router, Request, Response } from 'express';
 import * as crypto from 'crypto';
-import { prisma } from '../lib/prisma';
+import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519';
+import { prisma } from '../db/prisma';
 import { generateNonce, verifySignature } from '../lib/crypto';
 import { generateAccessToken, generateRefreshToken, createJWTPayload } from '../lib/jwt';
 import { hashToken } from '../lib/crypto';
 import { config } from '../config';
+import { serializeEncryptedKey } from '../utils/encryption';
 
 const router = Router();
 
@@ -33,7 +35,21 @@ router.post('/nonce', async (req: Request, res: Response) => {
       },
     });
 
-    res.json({ nonce, expiresAt });
+    // Authorization message explaining what user authorizes
+    const authorizationMessage = `By signing this message, you authorize:
+- Account access to SuiMeet
+- Automatic transaction signing for approved room operations
+- Session creation with ephemeral keypair for seamless experience
+
+Nonce: ${nonce}
+Expires: ${expiresAt.toISOString()}`;
+
+    res.json({
+      nonce,
+      expiresAt,
+      authorizationMessage,
+      message: 'Sign this nonce with your wallet to authenticate'
+    });
   } catch (error) {
     console.error('Error generating nonce:', error);
     res.status(500).json({ error: 'Failed to generate nonce' });
@@ -61,7 +77,7 @@ router.post('/verify', async (req: Request, res: Response) => {
       },
       orderBy: { createdAt: 'desc' },
     });
-    
+
 
     if (!nonceRecord) {
       return res.status(400).json({ error: 'Invalid or expired nonce' });
@@ -105,7 +121,15 @@ router.post('/verify', async (req: Request, res: Response) => {
       });
     }
 
-    // Create session
+    // Generate ephemeral Ed25519 keypair for auto-signing
+    const ephemeralKeypair = new Ed25519Keypair();
+    const publicKey = ephemeralKeypair.getPublicKey().toSuiAddress();
+    const privateKeyBytes = ephemeralKeypair.getSecretKey();
+
+    // Encrypt and serialize the private key
+    const encryptedPrivateKey = serializeEncryptedKey(privateKeyBytes, publicKey);
+
+    // Create session with encrypted ephemeral key
     const expiresAt = new Date(Date.now() + config.sessionMaxAge);
     const session = await prisma.session.create({
       data: {
@@ -114,6 +138,7 @@ router.post('/verify', async (req: Request, res: Response) => {
         jwtId: crypto.randomUUID(),
         expiresAt,
         status: 'active',
+        encryptedPrivateKey, // Store encrypted ephemeral key
       },
     });
 
@@ -148,10 +173,15 @@ router.post('/verify', async (req: Request, res: Response) => {
       session: {
         id: session.id,
         expiresAt: session.expiresAt,
+        hasEphemeralKey: true, // Indicates auto-signing is enabled
       },
       user: {
         id: user.id,
         walletAddress: wallet.address,
+      },
+      ephemeralWallet: {
+        address: publicKey,
+        expiresAt: session.expiresAt,
       },
     });
   } catch (error) {
@@ -178,10 +208,10 @@ router.post('/refresh', async (req: Request, res: Response) => {
     const tokenRecord = await prisma.refreshToken.findFirst({
       where: { tokenHash: refreshTokenHash },
       include: {
-        session: {
+        Session: {
           include: {
-            user: true,
-            wallet: true,
+            User: true,
+            Wallet: true,
           },
         },
       },
@@ -192,19 +222,19 @@ router.post('/refresh', async (req: Request, res: Response) => {
     }
 
     // Check if session is still active
-    if (tokenRecord.session.status !== 'active' || tokenRecord.session.expiresAt < new Date()) {
+    if (tokenRecord.Session.status !== 'active' || tokenRecord.Session.expiresAt < new Date()) {
       return res.status(401).json({ error: 'Session expired' });
     }
 
     // Generate new access token
     const jwtPayload = createJWTPayload(
       {
-        userId: tokenRecord.session.userId,
-        walletId: tokenRecord.session.walletId,
-        walletAddress: tokenRecord.session.wallet.address,
-        walletType: tokenRecord.session.wallet.type as 'sui' | 'zklogin',
+        userId: tokenRecord.Session.userId,
+        walletId: tokenRecord.Session.walletId,
+        walletAddress: tokenRecord.Session.Wallet.address,
+        walletType: tokenRecord.Session.Wallet.type as 'sui' | 'zklogin',
       },
-      tokenRecord.session.id
+      tokenRecord.Session.id
     );
 
     const accessToken = generateAccessToken(jwtPayload);

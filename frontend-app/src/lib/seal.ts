@@ -165,6 +165,10 @@ export async function validateSealAccessWithSessionKey(
 
       return true;
     } catch (error) {
+      console.log({
+        room,
+        userAddress
+      })
       console.error('Seal access validation failed (fetchKeys):', error);
       return false;
     }

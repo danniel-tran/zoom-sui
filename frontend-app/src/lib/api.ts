@@ -13,6 +13,7 @@ interface CreateRoomRequest {
   walletAddress: string;
   onchainObjectId: string;
   hostCapId?: string;
+  sealPolicyId: string; // REQUIRED - seal policy object ID for access control
 }
 
 interface CreateRoomResponse {
@@ -136,6 +137,22 @@ class ApiClient {
     const response = await fetch(url, options);
 
     if (!response.ok) {
+      // Handle token expiration/invalid token (401 Unauthorized or 403 Forbidden)
+      if (response.status === 401 || response.status === 403) {
+        console.log('[API] Token expired or invalid - clearing auth and redirecting to login');
+
+        // Clear tokens from localStorage
+        localStorage.removeItem('accessToken');
+        localStorage.removeItem('refreshToken');
+
+        // Redirect to login page
+        if (typeof window !== 'undefined') {
+          window.location.href = '/login';
+        }
+
+        throw new Error('Session expired. Please login again.');
+      }
+
       const error = await response.json().catch(() => ({ error: 'Unknown error' }));
       throw new Error(error.error || `API error: ${response.status}`);
     }
@@ -244,6 +261,47 @@ class ApiClient {
 
   async endCall(roomId: string, participantId: string) {
     return this.request(`/signaling/${roomId}/end`, 'POST', { participantId });
+  }
+
+  // Seal - Check room access
+  async checkRoomAccess(roomId: string, token: string): Promise<{ hasAccess: boolean; removed?: boolean }> {
+    return this.request<{ hasAccess: boolean; removed?: boolean }>(
+      '/seal/check-access',
+      'POST',
+      { roomId },
+      token
+    );
+  }
+
+  // Join Request API
+  async createJoinRequest(roomId: string, token: string): Promise<{ approvalRequest: any }> {
+    return this.request<{ approvalRequest: any }>(
+      `/rooms/${roomId}/approval-request`,
+      'POST',
+      {},
+      token
+    );
+  }
+
+  async approveJoinRequest(roomId: string, guestAddress: string, requestId: string, token: string, txDigest?: string): Promise<any> {
+    return this.request(
+      `/rooms/${roomId}/approve/${requestId}`,
+      'POST',
+      {
+        guestAddress,
+        txDigest
+      },
+      token
+    );
+  }
+
+  async denyJoinRequest(roomId: string, requestId: string, token: string): Promise<any> {
+    return this.request(
+      `/rooms/${roomId}/deny/${requestId}`,
+      'POST',
+      {},
+      token
+    );
   }
 }
 

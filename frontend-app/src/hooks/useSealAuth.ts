@@ -105,20 +105,29 @@ export function useSealAuth() {
       // Get the personal message from the SessionKey
       const personalMessage = key.getPersonalMessage();
 
-      // // Sign the personal message using the wallet
-      const result = await signPersonalMessage({
-        message: personalMessage,
-      });
+      let signSessionKey = async () => {
+        // Sign the personal message using the wallet
+        const result = await signPersonalMessage({
+          message: personalMessage,
+        });
 
-      // Set the signature on the SessionKey
-      await key.setPersonalMessageSignature(result.signature);
+        // Set the signature on the SessionKey
+        await key.setPersonalMessageSignature(result.signature);
+      }
 
-      // const ephemeralKeypair = new Ed25519Keypair();
+      await signSessionKey();
 
-      // const signature = await ephemeralKeypair.sign(personalMessage);
-      // const messageSign = (new TextDecoder()).decode(signature);
-      // await key.setPersonalMessageSignature(messageSign);
-      //
+
+      // let handleAutoSign = async (): Promise<void> => {
+      //   // replace for sign on session key message
+      //   const ephemeralKeypair = new Ed25519Keypair();
+
+      //   const signature = await ephemeralKeypair.sign(personalMessage);
+      //   const messageSign = (new TextDecoder()).decode(signature);
+      //   await key.setPersonalMessageSignature(messageSign);
+
+      // }
+
 
       setSessionKey(key);
       return key;

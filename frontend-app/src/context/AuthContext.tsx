@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
+import React, { createContext, useContext, useState, ReactNode, useEffect, useMemo, useCallback } from 'react';
 import { useCurrentAccount, useDisconnectWallet, useSuiClientQuery } from '@mysten/dapp-kit';
 import { initiateZkLogin, DecodedJwt } from '@/lib/zkLogin';
 import { useAuth as useWalletAuth } from '@/hooks/useAuth';
@@ -38,6 +38,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const [zkAddress, setZkAddress] = useState<string | null>(null);
     const [isConnecting, setIsConnecting] = useState(true);
 
+    // Debug logging for wallet account
+    useEffect(() => {
+        console.log('[AuthContext] Wallet account state:', {
+            hasAccount: !!walletAccount,
+            address: walletAccount?.address,
+            isConnecting,
+        });
+    }, [walletAccount, isConnecting]);
+
     // Use the wallet authentication hook
     const {
         accessToken,
@@ -48,15 +57,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         logout: logoutWallet,
     } = useWalletAuth();
 
-    // Determine which auth method is active
-    const authMethod: AuthMethod = walletAccount 
-        ? 'wallet' 
-        : zkUser 
-        ? 'zklogin' 
-        : null;
+    // Determine which auth method is active (memoized)
+    const authMethod: AuthMethod = useMemo(() => {
+        if (walletAccount) return 'wallet';
+        if (zkUser) return 'zklogin';
+        return null;
+    }, [walletAccount, zkUser]);
 
-    // Get the active address
-    const address = walletAccount?.address || zkAddress;
+    // Get the active address (memoized to ensure stable reference)
+    const address = useMemo(() => {
+        return walletAccount?.address || zkAddress || null;
+    }, [walletAccount?.address, zkAddress]);
 
     // Get balance for the active address
     const { data: balanceData } = useSuiClientQuery(
@@ -65,15 +76,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         { enabled: !!address }
     );
 
-    const balance = balanceData?.totalBalance 
-        ? (Number(balanceData.totalBalance) / 1_000_000_000).toFixed(4)
-        : null;
+    const balance = useMemo(() => {
+        return balanceData?.totalBalance
+            ? (Number(balanceData.totalBalance) / 1_000_000_000).toFixed(4)
+            : null;
+    }, [balanceData?.totalBalance]);
 
     // Handle initial loading state for auto-connect
     useEffect(() => {
         // Check if there's a stored wallet connection
         const storedWallet = localStorage.getItem('sui-meet-wallet');
-        
+
         if (!storedWallet) {
             // No stored wallet, stop loading immediately
             setIsConnecting(false);
@@ -113,24 +126,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }, []);
 
     // Clear wallet authentication when wallet is disconnected
+    // But ONLY after auto-connect has finished (to avoid clearing on page load)
     useEffect(() => {
-        if (!walletAccount && isWalletAuthenticated) {
+        // Wait for auto-connect to complete before checking logout
+        if (!isConnecting && !walletAccount && isWalletAuthenticated) {
             // Wallet was disconnected, clear the auth tokens
             console.log('Wallet disconnected, clearing authentication');
             logoutWallet();
         }
-    }, [walletAccount, isWalletAuthenticated, logoutWallet]);
+    }, [isConnecting, walletAccount, isWalletAuthenticated, logoutWallet]);
 
-    // Actions
-    const loginWithZkLogin = () => {
+    // Actions (memoized with useCallback)
+    const loginWithZkLogin = useCallback(() => {
         initiateZkLogin();
-    };
+    }, []);
 
-    const authenticateWallet = async (): Promise<boolean> => {
+    const authenticateWallet = useCallback(async (): Promise<boolean> => {
         return await authenticate();
-    };
+    }, [authenticate]);
 
-    const disconnect = () => {
+    const disconnect = useCallback(() => {
         // Disconnect wallet if connected
         if (walletAccount) {
             disconnectWallet();
@@ -144,27 +159,49 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setZkAddress(null);
         localStorage.removeItem('zkLoginUser');
         localStorage.removeItem('zkLoginAddress');
-    };
+    }, [walletAccount, disconnectWallet, logoutWallet]);
 
-    const isWalletConnected = !!address || isWalletAuthenticated;
+    // isWalletConnected should ensure authentication is complete
+    // For wallet: must have address AND be authenticated (have JWT token)
+    // For zkLogin: just needs zkUser to exist (memoized)
+    const isWalletConnected = useMemo(() => {
+        if (walletAccount) {
+            return !!walletAccount.address && isWalletAuthenticated;
+        }
+        return !!zkUser;
+    }, [walletAccount, isWalletAuthenticated, zkUser]);
+
+    // Memoize the context value to prevent unnecessary re-renders
+    const contextValue = useMemo(() => ({
+        isWalletConnected,
+        isConnecting,
+        address,
+        balance,
+        authMethod,
+        user: zkUser,
+        accessToken,
+        isAuthenticating,
+        authError,
+        authenticateWallet,
+        loginWithZkLogin,
+        disconnect,
+    }), [
+        isWalletConnected,
+        isConnecting,
+        address,
+        balance,
+        authMethod,
+        zkUser,
+        accessToken,
+        isAuthenticating,
+        authError,
+        authenticateWallet,
+        loginWithZkLogin,
+        disconnect,
+    ]);
 
     return (
-        <AuthContext.Provider
-            value={{
-                isWalletConnected,
-                isConnecting,
-                address,
-                balance,
-                authMethod,
-                user: zkUser,
-                accessToken,
-                isAuthenticating,
-                authError,
-                authenticateWallet,
-                loginWithZkLogin,
-                disconnect,
-            }}
-        >
+        <AuthContext.Provider value={contextValue}>
             {children}
         </AuthContext.Provider>
     );

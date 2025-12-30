@@ -73,5 +73,4 @@ See `prisma/schema.prisma` for full schema with:
 - Session & JWT tokens
 - Ephemeral keys for auto-signing
 - Room & Membership tracking
-- POAP minting records
 - P2P session logs

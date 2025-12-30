@@ -1,10 +1,9 @@
 import { Router, Request, Response } from 'express';
 import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519';
-import { prisma } from '../lib/prisma';
-import { encrypt, decrypt } from '../lib/crypto';
+import { prisma } from '../db/prisma';
+import { serializeEncryptedKey, deserializeEncryptedKey } from '../utils/encryption';
 import { verifyToken } from '../lib/jwt';
 import { authenticate } from '../middleware/auth';
-import { EphemeralKeyScope } from '../types';
 
 const router = Router();
 
@@ -15,28 +14,9 @@ const router = Router();
  */
 router.post('/create', authenticate, async (req: Request, res: Response) => {
   try {
-    const { scope, expiresInHours = 24 } = req.body;
+    const { expiresInHours = 24 } = req.body;
     const userId = (req as any).user.sub;
     const sessionId = (req as any).user.sid;
-
-    if (!scope || !Array.isArray(scope)) {
-      return res.status(400).json({ 
-        error: 'Scope array is required (e.g., ["room:create", "room:join"])' 
-      });
-    }
-
-    // Validate scope values
-    const validScopes: EphemeralKeyScope[] = [
-      'room:create', 'room:approve', 'room:revoke',
-      'room:join', 'room:leave', 'poap:mint'
-    ];
-    
-    const invalidScopes = scope.filter((s: string) => !validScopes.includes(s as EphemeralKeyScope));
-    if (invalidScopes.length > 0) {
-      return res.status(400).json({ 
-        error: `Invalid scopes: ${invalidScopes.join(', ')}` 
-      });
-    }
 
     // Check session is active
     const session = await prisma.session.findUnique({
@@ -51,30 +31,17 @@ router.post('/create', authenticate, async (req: Request, res: Response) => {
     const ephemeralKeypair = new Ed25519Keypair();
     const publicKey = ephemeralKeypair.getPublicKey().toSuiAddress();
     const privateKeyBytes = ephemeralKeypair.getSecretKey();
-    const privateKeyBase64 = Buffer.from(privateKeyBytes).toString('base64');
 
-    // Encrypt private key for storage
-    const encryptedPrivateKey = encrypt(privateKeyBase64);
+    // Encrypt and serialize private key
+    const encryptedPrivateKey = serializeEncryptedKey(privateKeyBytes, publicKey);
 
     // Calculate expiration
     const expiresAt = new Date(Date.now() + expiresInHours * 60 * 60 * 1000);
 
-    // Store ephemeral key
-    const ephemeralKey = await prisma.ephemeralKey.create({
-      data: {
-        sessionId: session.id,
-        publicKey,
-        encryptedPublicKey: encrypt(publicKey), // Optional encrypted version
-        alg: 'ed25519',
-        scope: scope.join(','),
-        expiresAt,
-      },
-    });
-
-    // Also update session with encrypted private key for convenience
+    // Update session with encrypted private key (no more EphemeralKey table)
     await prisma.session.update({
       where: { id: session.id },
-      data: { 
+      data: {
         encryptedPrivateKey,
         lastUsedAt: new Date(),
       },
@@ -82,13 +49,12 @@ router.post('/create', authenticate, async (req: Request, res: Response) => {
 
     res.json({
       childWallet: {
-        id: ephemeralKey.id,
+        id: session.id, // Use session ID as identifier
         address: publicKey,
-        scope,
         expiresAt,
-        issuedAt: ephemeralKey.issuedAt,
+        issuedAt: new Date(),
       },
-      message: 'Child wallet created successfully. Use this address for auto-signing within allowed scopes.',
+      message: 'Child wallet created successfully. Use this address for auto-signing.',
     });
   } catch (error) {
     console.error('Error creating child wallet:', error);
@@ -99,28 +65,34 @@ router.post('/create', authenticate, async (req: Request, res: Response) => {
 /**
  * GET /api/child-wallet/list
  * List all active child wallets for current session
+ * Note: Now returns session-based child wallet info
  */
 router.get('/list', authenticate, async (req: Request, res: Response) => {
   try {
     const sessionId = (req as any).user.sid;
 
-    const ephemeralKeys = await prisma.ephemeralKey.findMany({
+    const session = await prisma.session.findUnique({
       where: {
-        sessionId,
-        revokedAt: null,
+        id: sessionId,
+        status: 'active',
         expiresAt: { gt: new Date() },
       },
-      orderBy: { issuedAt: 'desc' },
     });
 
+    if (!session || !session.encryptedPrivateKey) {
+      return res.json({ childWallets: [] });
+    }
+
+    // Deserialize and decrypt to get public key
+    const { publicKey } = deserializeEncryptedKey(session.encryptedPrivateKey);
+
     res.json({
-      childWallets: ephemeralKeys.map(key => ({
-        id: key.id,
-        address: key.publicKey,
-        scope: key.scope.split(','),
-        issuedAt: key.issuedAt,
-        expiresAt: key.expiresAt,
-      })),
+      childWallets: [{
+        id: session.id,
+        address: publicKey,
+        issuedAt: session.createdAt,
+        expiresAt: session.expiresAt,
+      }],
     });
   } catch (error) {
     console.error('Error listing child wallets:', error);
@@ -135,34 +107,12 @@ router.get('/list', authenticate, async (req: Request, res: Response) => {
  */
 router.post('/sign', authenticate, async (req: Request, res: Response) => {
   try {
-    const { ephemeralKeyId, txPayload, requestedScope } = req.body;
+    const { txPayload, action = 'auto_sign', roomId, txDigest } = req.body;
     const sessionId = (req as any).user.sid;
 
-    if (!ephemeralKeyId || !txPayload) {
-      return res.status(400).json({ 
-        error: 'ephemeralKeyId and txPayload are required' 
-      });
-    }
-
-    // Find ephemeral key
-    const ephemeralKey = await prisma.ephemeralKey.findFirst({
-      where: {
-        id: ephemeralKeyId,
-        sessionId,
-        revokedAt: null,
-        expiresAt: { gt: new Date() },
-      },
-    });
-
-    if (!ephemeralKey) {
-      return res.status(404).json({ error: 'Child wallet not found or expired' });
-    }
-
-    // Verify scope permission
-    const allowedScopes = ephemeralKey.scope.split(',');
-    if (requestedScope && !allowedScopes.includes(requestedScope)) {
-      return res.status(403).json({ 
-        error: `Insufficient permissions. Required: ${requestedScope}, Allowed: ${allowedScopes.join(', ')}` 
+    if (!txPayload) {
+      return res.status(400).json({
+        error: 'txPayload is required'
       });
     }
 
@@ -175,30 +125,37 @@ router.post('/sign', authenticate, async (req: Request, res: Response) => {
       return res.status(500).json({ error: 'Child wallet private key not found' });
     }
 
-    const privateKeyBase64 = decrypt(session.encryptedPrivateKey);
-    const privateKeyBytes = Buffer.from(privateKeyBase64, 'base64');
-    
+    if (session.status !== 'active' || session.expiresAt < new Date()) {
+      return res.status(401).json({ error: 'Session expired' });
+    }
+
+    // Deserialize and decrypt private key
+    const { privateKey: privateKeyBytes } = deserializeEncryptedKey(session.encryptedPrivateKey);
+
     // Reconstruct keypair
     const ephemeralKeypair = Ed25519Keypair.fromSecretKey(privateKeyBytes);
 
     // Sign transaction
     const txBytes = Buffer.from(txPayload, 'base64');
     const signature = await ephemeralKeypair.sign(txBytes);
+    const signatureBase64 = Buffer.from(signature).toString('base64');
 
-    // Log the delegated signature for audit trail
+    // Log the delegated signature for audit trail (new schema)
     await prisma.delegatedSignature.create({
       data: {
         sessionId,
-        txTemplateHash: Buffer.from(txBytes.slice(0, 32)).toString('hex'),
-        signature: Buffer.from(signature).toString('base64'),
-        scope: requestedScope || 'auto-sign',
-        expiresAt: ephemeralKey.expiresAt,
+        action: action as string, // e.g., "approve_guest", "start_room", "auto_sign"
+        roomId: roomId || null, // Room ID if this is a room operation
+        txDigest: txDigest || null, // Transaction digest (after broadcast)
+        signature: signatureBase64,
       },
     });
 
+    const publicKey = ephemeralKeypair.getPublicKey().toSuiAddress();
+
     res.json({
-      signature: Buffer.from(signature).toString('base64'),
-      publicKey: ephemeralKey.publicKey,
+      signature: signatureBase64,
+      publicKey,
       signedAt: new Date().toISOString(),
     });
   } catch (error) {
@@ -209,27 +166,29 @@ router.post('/sign', authenticate, async (req: Request, res: Response) => {
 
 /**
  * DELETE /api/child-wallet/:id
- * Revoke a child wallet
+ * Revoke a child wallet (now clears session's encryptedPrivateKey)
  */
 router.delete('/:id', authenticate, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const sessionId = (req as any).user.sid;
 
-    const ephemeralKey = await prisma.ephemeralKey.findFirst({
-      where: {
-        id,
-        sessionId,
-      },
-    });
-
-    if (!ephemeralKey) {
-      return res.status(404).json({ error: 'Child wallet not found' });
+    if (id !== sessionId) {
+      return res.status(403).json({ error: 'Cannot revoke another session\'s child wallet' });
     }
 
-    await prisma.ephemeralKey.update({
-      where: { id },
-      data: { revokedAt: new Date() },
+    const session = await prisma.session.findUnique({
+      where: { id: sessionId },
+    });
+
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+
+    // Clear encrypted private key to revoke child wallet
+    await prisma.session.update({
+      where: { id: sessionId },
+      data: { encryptedPrivateKey: null },
     });
 
     res.json({ message: 'Child wallet revoked successfully' });

@@ -377,4 +377,76 @@ export class WebSocketSignalingServer {
       participants: Array.from(room.participants.keys())
     };
   }
+
+  /**
+   * Notify all hosts in a room about a new join request
+   * Used when a guest requests to join and needs approval
+   */
+  public notifyHostsOfJoinRequest(roomId: string, hostAddresses: string[], joinRequest: {
+    id: string;
+    requesterAddress: string;
+    createdAt: Date;
+  }) {
+    const room = this.rooms.get(roomId);
+    if (!room) {
+      console.log(`[WS] Cannot notify hosts - room ${roomId.slice(0, 10)}... not found`);
+      return;
+    }
+
+    const message = JSON.stringify({
+      type: 'join-request',
+      roomId,
+      requestId: joinRequest.id,
+      requesterAddress: joinRequest.requesterAddress,
+      createdAt: joinRequest.createdAt.toISOString()
+    });
+
+    // Send to all connected hosts
+    let notifiedCount = 0;
+    hostAddresses.forEach(hostAddress => {
+      const hostWs = room.participants.get(hostAddress);
+      if (hostWs && hostWs.readyState === WebSocket.OPEN) {
+        hostWs.send(message);
+        notifiedCount++;
+      }
+    });
+
+    console.log(`[WS] Notified ${notifiedCount} hosts about join request from ${joinRequest.requesterAddress.slice(0, 10)}... in room ${roomId.slice(0, 10)}...`);
+  }
+
+  /**
+   * Notify a specific guest that their join request was approved
+   */
+  public notifyGuestApproved(roomId: string, guestAddress: string, approverAddress: string) {
+    const room = this.rooms.get(roomId);
+    if (!room) return;
+
+    const guestWs = room.participants.get(guestAddress);
+    if (guestWs && guestWs.readyState === WebSocket.OPEN) {
+      guestWs.send(JSON.stringify({
+        type: 'join-request-approved',
+        roomId,
+        approverAddress
+      }));
+      console.log(`[WS] Notified ${guestAddress.slice(0, 10)}... of approval in room ${roomId.slice(0, 10)}...`);
+    }
+  }
+
+  /**
+   * Notify a specific guest that their join request was rejected
+   */
+  public notifyGuestRejected(roomId: string, guestAddress: string, rejecterAddress: string) {
+    const room = this.rooms.get(roomId);
+    if (!room) return;
+
+    const guestWs = room.participants.get(guestAddress);
+    if (guestWs && guestWs.readyState === WebSocket.OPEN) {
+      guestWs.send(JSON.stringify({
+        type: 'join-request-rejected',
+        roomId,
+        rejecterAddress
+      }));
+      console.log(`[WS] Notified ${guestAddress.slice(0, 10)}... of rejection in room ${roomId.slice(0, 10)}...`);
+    }
+  }
 }

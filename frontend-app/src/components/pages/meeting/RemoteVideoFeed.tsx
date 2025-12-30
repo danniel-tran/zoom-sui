@@ -56,6 +56,8 @@ const RemoteVideoFeed: React.FC<RemoteVideoFeedProps> = ({
   const [hasAudio, setHasAudio] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const lastVideoTimeRef = useRef<number>(0);
+  const videoFrozenCountRef = useRef<number>(0);
 
   // Handle fullscreen toggle
   const toggleFullscreen = () => {
@@ -94,28 +96,87 @@ const RemoteVideoFeed: React.FC<RemoteVideoFeedProps> = ({
       const updateTrackState = () => {
         const videoTracks = stream.getVideoTracks();
         const audioTracks = stream.getAudioTracks();
-        const hasVideoTrack = videoTracks.length > 0 && videoTracks.some(t => t.enabled);
-        const hasAudioTrack = audioTracks.length > 0 && audioTracks.some(t => t.enabled);
 
-        setHasVideo(hasVideoTrack);
-        setHasAudio(hasAudioTrack);
+        // Check if video is actually playing (receiving frames)
+        // Note: We can't rely on track.enabled from remote peer (it's always true)
+        // We need to detect if the video is FROZEN (not advancing)
+        const hasLiveVideoTrack = videoTracks.length > 0 && videoTracks.some(t => t.readyState === 'live');
+
+        // Detect frozen video by checking if currentTime is advancing
+        const currentTime = video.currentTime;
+        const isVideoAdvancing = currentTime > lastVideoTimeRef.current && currentTime > 0;
+
+        if (isVideoAdvancing) {
+          // Video is advancing - reset frozen counter
+          if (videoFrozenCountRef.current > 0) {
+            console.log(`[RemoteVideoFeed] Video resumed from ${label || participantId.slice(0, 10)}`);
+          }
+          videoFrozenCountRef.current = 0;
+        } else if (hasLiveVideoTrack && video.readyState >= 2) {
+          // Video has data but isn't advancing - increment frozen counter
+          videoFrozenCountRef.current += 1;
+          if (videoFrozenCountRef.current === 2) {
+            console.log(`[RemoteVideoFeed] Video frozen/disabled from ${label || participantId.slice(0, 10)}`);
+          }
+        }
+
+        lastVideoTimeRef.current = currentTime;
+
+        // Consider video "on" if:
+        // 1. Track exists and is live
+        // 2. Video element has data
+        // 3. Video is advancing (not frozen for more than 2 checks = 1 second)
+        const isVideoActive = hasLiveVideoTrack &&
+                             video.readyState >= 2 &&
+                             videoFrozenCountRef.current < 2;
+
+        const hasLiveAudioTrack = audioTracks.length > 0 && audioTracks.some(t => t.readyState === 'live');
+
+        setHasVideo(isVideoActive);
+        setHasAudio(hasLiveAudioTrack);
         setIsConnected(videoTracks.length > 0 || audioTracks.length > 0);
-
-        if (hasVideoTrack) {
-          console.log(`[RemoteVideoFeed] Video track received from ${label || participantId.slice(0, 10)}`);
-        }
-        if (hasAudioTrack) {
-          console.log(`[RemoteVideoFeed] Audio track received from ${label || participantId.slice(0, 10)}`);
-        }
       };
 
       // Initial state check
+      lastVideoTimeRef.current = 0;
+      videoFrozenCountRef.current = 0;
       updateTrackState();
 
-      // Play the video (with audio for remote participants)
-      video.play().catch((err) => {
-        console.error('[RemoteVideoFeed] Error playing video:', err);
-      });
+      // Note: autoPlay attribute on video element handles playback
+      // Manual play() not needed and may violate browser autoplay policies
+
+      // Listen to video element events to detect when frames stop/start
+      const handleVideoPlaying = () => {
+        console.log(`[RemoteVideoFeed] Video playing from ${label || participantId.slice(0, 10)}`);
+        updateTrackState();
+      };
+
+      const handleVideoPause = () => {
+        console.log(`[RemoteVideoFeed] Video paused from ${label || participantId.slice(0, 10)}`);
+        updateTrackState();
+      };
+
+      const handleVideoSuspend = () => {
+        console.log(`[RemoteVideoFeed] Video suspended from ${label || participantId.slice(0, 10)}`);
+        updateTrackState();
+      };
+
+      const handleVideoEnded = () => {
+        console.log(`[RemoteVideoFeed] Video ended from ${label || participantId.slice(0, 10)}`);
+        updateTrackState();
+      };
+
+      video.addEventListener('playing', handleVideoPlaying);
+      video.addEventListener('pause', handleVideoPause);
+      video.addEventListener('suspend', handleVideoSuspend);
+      video.addEventListener('ended', handleVideoEnded);
+      video.addEventListener('loadedmetadata', updateTrackState);
+
+      // Poll track state every 500ms as backup
+      // This catches cases where events don't fire
+      const pollInterval = setInterval(() => {
+        updateTrackState();
+      }, 500);
 
       // Handle track additions
       const handleAddTrack = (event: MediaStreamTrackEvent) => {
@@ -124,9 +185,7 @@ const RemoteVideoFeed: React.FC<RemoteVideoFeedProps> = ({
           video.srcObject = stream;
         }
         updateTrackState();
-        video.play().catch((err) => {
-          console.error('[RemoteVideoFeed] Error playing video after track addition:', err);
-        });
+        // autoPlay attribute handles playback automatically
       };
 
       // Handle track removals
@@ -152,6 +211,12 @@ const RemoteVideoFeed: React.FC<RemoteVideoFeedProps> = ({
 
       // Cleanup
       return () => {
+        clearInterval(pollInterval);
+        video.removeEventListener('playing', handleVideoPlaying);
+        video.removeEventListener('pause', handleVideoPause);
+        video.removeEventListener('suspend', handleVideoSuspend);
+        video.removeEventListener('ended', handleVideoEnded);
+        video.removeEventListener('loadedmetadata', updateTrackState);
         stream.removeEventListener('addtrack', handleAddTrack);
         stream.removeEventListener('removetrack', handleRemoveTrack);
         stream.getTracks().forEach(track => {

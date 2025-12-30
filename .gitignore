@@ -41,7 +41,9 @@ target/
 Cargo.lock
 
 # Docker
-docker-compose.override.yml
 backend_indexer/
 claude-code/
 backend-nestjs/
+docker/
+document/
+.claude

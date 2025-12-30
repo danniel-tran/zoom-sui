@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect, useCallback, Suspense } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import { useSuiClient, useSignAndExecuteTransaction, useCurrentAccount } from '@mysten/dapp-kit';
+import { useSignAndExecuteTransaction } from '@mysten/dapp-kit';
 import { Transaction } from '@mysten/sui/transactions';
 import {
     CheckIcon,
@@ -14,6 +14,7 @@ import {
     ChevronRightIcon
 } from '@radix-ui/react-icons';
 import { useAuth as useAuthContext } from '@/context/AuthContext';
+import { useAuthGuard } from '@/hooks/useAuthGuard';
 
 // Package ID from environment variable
 const PACKAGE_ID = process.env.NEXT_PUBLIC_PACKAGE_ID || '';
@@ -24,27 +25,53 @@ interface WhitelistAddress {
     addedAt?: number;
 }
 
+interface RoomData {
+    room: {
+        roomId: string;
+        title: string;
+        status: string;
+        maxParticipants: number;
+        requireApproval: boolean;
+        participantCount: number;
+        sealPolicyId: string;
+        createdAt: string | null;
+        startedAt: string | null;
+        endedAt: string | null;
+    };
+    hosts: Array<{ address: string; adminCapId?: string; joinedAt?: string }>;
+    participants: Array<{ address: string; joinedAt?: string }>;
+    metadata?: any;
+    pendingApprovals?: any[];
+}
+
 function EditRoomPageContent() {
     const router = useRouter();
     const params = useParams();
     const { mutate: signAndExecuteTransaction } = useSignAndExecuteTransaction();
-    const currentAccount = useCurrentAccount();
-    const suiClient = useSuiClient();
-    const { isWalletConnected: isWalletApprove } = useAuthContext();
+    const { isWalletConnected: isWalletApprove, address: walletAddress, isConnecting } = useAuthContext();
+
+    // Auth guard - check for access token
+    const { isAuthorized, isChecking: isCheckingAuth } = useAuthGuard();
+
+    // Create a currentAccount-like object for compatibility with existing code
+    const currentAccount = walletAddress ? { address: walletAddress } : null;
+    console.log('EditRoomPageContent - currentAccount:', currentAccount);
 
     const roomId = params.roomId as string;
 
     // HostCap state - stores the HostCap object ID for managing the room
     const [hostCapId, setHostCapId] = useState<string>('');
 
-    // Whitelist management
+    // Whitelist management - only participants (not hosts)
     const [whitelist, setWhitelist] = useState<WhitelistAddress[]>([]);
     const [newAddress, setNewAddress] = useState('');
     const [addressError, setAddressError] = useState('');
 
     // Room state
     const [inviteLink, setInviteLink] = useState('');
-    const [roomData, setRoomData] = useState<any>(null);
+    const [roomData, setRoomData] = useState<RoomData | null>(null);
+    const [isHost, setIsHost] = useState<boolean>(false);
+    const [isCheckingAccess, setIsCheckingAccess] = useState(true);
 
     // UI state
     const [loading, setLoading] = useState(false);
@@ -52,88 +79,102 @@ function EditRoomPageContent() {
     const [successMessage, setSuccessMessage] = useState('');
     const [copied, setCopied] = useState(false);
 
-    // Redirect if wallet disconnected
+    // Redirect if wallet disconnected (but wait for initial connection check)
     useEffect(() => {
-        if (!currentAccount) {
+        if (!isConnecting && !currentAccount) {
             router.push('/');
         }
-    }, [currentAccount, router]);
+    }, [currentAccount, isConnecting, router]);
 
-    // Load room data on mount
+    // Load room data on mount (only when roomId changes)
     useEffect(() => {
         if (roomId) {
             loadRoomData(roomId);
-            // Try to find HostCap for this room
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [roomId, walletAddress]); // Only re-run when roomId changes
+
+    // Find HostCap from room data after it's loaded
+    useEffect(() => {
+        if (roomData && walletAddress) {
             findHostCap();
         }
-    }, [roomId, currentAccount]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [roomData, walletAddress]);
 
-    const findHostCap = async () => {
-        if (!currentAccount?.address || !PACKAGE_ID) return;
+    const findHostCap = useCallback(() => {
+        if (!roomData || !walletAddress) return;
 
-        try {
-            // List HostCap objects owned by the host
-            const caps = await suiClient.getOwnedObjects({
-                owner: currentAccount.address,
-                filter: { StructType: `${PACKAGE_ID}::sealmeet::HostCap` },
-                options: { showType: true },
-            });
+        console.log('[EditRoom] Finding HostCap from room data...');
 
-            if (!caps.data.length) {
-                console.log('No HostCap found for current account');
-                return;
-            }
+        // Find the current user's host entry
+        const currentUserHost = roomData.hosts.find(
+            h => h.address?.toLowerCase() === walletAddress?.toLowerCase()
+        );
 
-            // Find the cap linked to this room by reading its fields
-            for (const o of caps.data) {
-                const id = (o.data as any)?.objectId || (o as any)?.objectId;
-                if (!id) continue;
-                const full = await suiClient.getObject({ id, options: { showContent: true } });
-                const fields = (full.data as any)?.content?.fields;
-                const capRoomId = fields?.room_id;
-                if (typeof capRoomId === 'string' && capRoomId.toLowerCase() === roomId.toLowerCase()) {
-                    setHostCapId(id);
-                    console.log('Found HostCap:', id);
-                    return;
-                }
-            }
-        } catch (err) {
-            console.error('HostCap lookup failed:', err);
+        if (currentUserHost?.adminCapId) {
+            setHostCapId(currentUserHost.adminCapId);
+            console.log('[EditRoom] Found HostCap:', currentUserHost.adminCapId);
+        } else {
+            console.log('[EditRoom] HostCap not found for current user');
         }
-    };
+    }, [roomData, walletAddress]);
 
-    const loadRoomData = async (id: string) => {
+    const loadRoomData = useCallback(async (id: string) => {
+        console.log('[EditRoom] Loading room data from backend for:', id);
         try {
             setLoading(true);
-            const object = await suiClient.getObject({
-                id,
-                options: { showContent: true }
-            });
+            setIsCheckingAccess(true);
 
-            if (object.data?.content && 'fields' in object.data.content) {
-                const fields = object.data.content.fields as any;
-                setRoomData(fields);
+            const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+            if (!apiUrl) throw new Error('API URL not configured');
+            const response = await fetch(`${apiUrl}/rooms/${id}`);
 
-                // Load whitelist from seal_policy
-                if (fields.seal_policy?.fields?.whitelist) {
-                    const addresses = fields.seal_policy.fields.whitelist.map((addr: string) => ({
-                        address: addr,
-                        addedAt: Date.now()
-                    }));
-                    setWhitelist(addresses);
-                }
-
-                // Generate invite link
-                const link = `${window.location.origin}/room/join?roomId=${id}`;
-                setInviteLink(link);
+            if (!response.ok) {
+                throw new Error('Failed to fetch room data');
             }
+
+            const data: RoomData = await response.json();
+            console.log('[EditRoom] Room data loaded:', data);
+            setRoomData(data);
+
+            // Check if current user is a host
+            const userIsHost = walletAddress
+                ? data.hosts.some(h => h.address?.toLowerCase() === walletAddress?.toLowerCase())
+                : false;
+
+            setIsHost(userIsHost);
+            console.log('[EditRoom] User is host:', userIsHost, walletAddress, data);
+
+            if (!userIsHost) {
+                console.log('[EditRoom] User is not a host, redirecting...');
+                setError('Only hosts can access the edit page');
+                return;
+            }
+            else {
+                setError("")
+            }
+
+            // Show only participants (not hosts) in the revoke list
+            const participantAddresses = data.participants.map(p => ({
+                address: p.address,
+                addedAt: p.joinedAt ? new Date(p.joinedAt).getTime() : Date.now()
+            }));
+
+            setWhitelist(participantAddresses);
+            console.log('[EditRoom] Loaded', participantAddresses.length, 'participants (hosts excluded)');
+
+            // Generate invite link - direct to meeting page
+            const link = `${window.location.origin}/meeting/${id}`;
+            setInviteLink(link);
         } catch (err) {
-            console.error('Failed to load room:', err);
+            console.error('[EditRoom] Failed to load room:', err);
             setError('Failed to load room data');
         } finally {
             setLoading(false);
+            setIsCheckingAccess(false);
         }
-    };
+    }, [walletAddress, router]);
 
     const validateSuiAddress = (address: string): boolean => {
         const cleanAddr = address.trim();
@@ -262,12 +303,51 @@ function EditRoomPageContent() {
         setTimeout(() => setCopied(false), 2000);
     };
 
-    if (loading && !roomData) {
+    // Auth guard check - show loading while checking
+    if (isCheckingAuth) {
         return (
             <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-cyan-50 flex items-center justify-center p-4">
                 <div className="text-center">
                     <UpdateIcon className="w-12 h-12 animate-spin text-blue-500 mx-auto mb-4" />
-                    <p className="text-gray-600">Loading room data...</p>
+                    <p className="text-gray-600">Checking authentication...</p>
+                </div>
+            </div>
+        );
+    }
+
+    // Not authorized - will redirect to login (return null to prevent flash)
+    if (!isAuthorized) {
+        return null;
+    }
+
+    // Show loading while wallet is connecting or checking access
+    if (isConnecting || isCheckingAccess || (loading && !roomData)) {
+        return (
+            <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-cyan-50 flex items-center justify-center p-4">
+                <div className="text-center">
+                    <UpdateIcon className="w-12 h-12 animate-spin text-blue-500 mx-auto mb-4" />
+                    <p className="text-gray-600">
+                        {isConnecting ? 'Connecting wallet...' : isCheckingAccess ? 'Checking access...' : 'Loading room data...'}
+                    </p>
+                </div>
+            </div>
+        );
+    }
+
+    // Redirect non-hosts
+    if (!isHost && !isCheckingAccess) {
+        return (
+            <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-cyan-50 flex items-center justify-center p-4">
+                <div className="text-center max-w-md">
+                    <ExclamationTriangleIcon className="w-16 h-16 text-red-500 mx-auto mb-4" />
+                    <h2 className="text-2xl font-bold text-gray-900 mb-2">Access Denied</h2>
+                    <p className="text-gray-600 mb-6">Only hosts can access the edit page.</p>
+                    <button
+                        onClick={() => router.push('/room')}
+                        className="px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition"
+                    >
+                        Back to Rooms
+                    </button>
                 </div>
             </div>
         );
@@ -281,7 +361,7 @@ function EditRoomPageContent() {
                     <div className="flex justify-between items-start mb-2">
                         <div>
                             <h1 className="text-4xl font-bold text-gray-900 mb-2">
-                                {roomData?.title ? new TextDecoder().decode(new Uint8Array(roomData.title)) : 'Meeting Room'}
+                                {roomData?.room.title || 'Meeting Room'}
                             </h1>
                             <p className="text-gray-600 flex items-center gap-2">
                                 <CheckIcon className="w-4 h-4 text-green-500" />
@@ -407,13 +487,16 @@ function EditRoomPageContent() {
                     <div className="bg-white rounded-2xl shadow-lg p-6">
                         <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center gap-2">
                             <PersonIcon className="w-5 h-5 text-cyan-500" />
-                            Manage Access ({whitelist.length})
+                            Manage Participants ({whitelist.length})
                         </h2>
+                        <p className="text-xs text-gray-500 mb-4">
+                            Hosts are not shown in this list and cannot be revoked.
+                        </p>
 
                         {/* Add New Guest */}
                         <div className="mb-4">
                             <label className="block text-sm font-medium text-gray-700 mb-2">
-                                Approve New Guest
+                                Approve New Participant
                             </label>
                             <div className="flex gap-2">
                                 <input
@@ -492,18 +575,28 @@ function EditRoomPageContent() {
                         <div>
                             <span className="text-gray-500">Require Approval:</span>
                             <span className="ml-2 font-medium">
-                                {roomData?.require_approval ? 'Yes' : 'No'}
+                                {roomData?.room.requireApproval ? 'Yes' : 'No'}
                             </span>
                         </div>
                         <div>
-                            <span className="text-gray-500">Participants:</span>
+                            <span className="text-gray-500">Status:</span>
+                            <span className="ml-2 font-medium capitalize">
+                                {roomData?.room.status || 'N/A'}
+                            </span>
+                        </div>
+                        <div>
+                            <span className="text-gray-500">Participants (excluding hosts):</span>
                             <span className="ml-2 font-medium">{whitelist.length}</span>
                         </div>
+                        <div>
+                            <span className="text-gray-500">Hosts:</span>
+                            <span className="ml-2 font-medium">{roomData?.hosts.length || 0}</span>
+                        </div>
                         <div className="md:col-span-2">
-                            <span className="text-gray-500">Policy Updated:</span>
+                            <span className="text-gray-500">Created At:</span>
                             <span className="ml-2 font-medium">
-                                {roomData?.seal_policy?.fields?.updated_at
-                                    ? new Date(Number(roomData.seal_policy.fields.updated_at)).toLocaleString()
+                                {roomData?.room.createdAt
+                                    ? new Date(roomData.room.createdAt).toLocaleString()
                                     : 'N/A'
                                 }
                             </span>

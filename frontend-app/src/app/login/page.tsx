@@ -178,19 +178,6 @@ export default function LoginPage() {
                   </p>
                 </div>
               </div>
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 bg-cyan-50 rounded-lg flex items-center justify-center">
-                  <LightningBoltIcon className="w-4 h-4 text-cyan-500" />
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-white">
-                    NFT Attendance Badges
-                  </p>
-                  <p className="text-xs text-gray-400">
-                    Mint POAPs for meeting participation
-                  </p>
-                </div>
-              </div>
             </div>
           </div>
         </div>

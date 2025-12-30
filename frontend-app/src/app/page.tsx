@@ -73,13 +73,6 @@ export default function HomePage() {
             <p className="text-gray-600">Fast, encrypted video via Sui Stack Messaging SDK.</p>
           </div>
           <div className="p-6 bg-white rounded-2xl shadow-lg hover:shadow-xl transition-shadow">
-            <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center mb-4">
-              <PersonIcon className="w-6 h-6 text-green-600" />
-            </div>
-            <h3 className="text-xl font-semibold text-gray-900 mb-2">NFT Badges</h3>
-            <p className="text-gray-600">Mint POAP attendance badges, verifiable on Sui blockchain.</p>
-          </div>
-          <div className="p-6 bg-white rounded-2xl shadow-lg hover:shadow-xl transition-shadow">
             <div className="w-12 h-12 bg-purple-100 rounded-xl flex items-center justify-center mb-4">
               <CalendarIcon className="w-6 h-6 text-purple-600" />
             </div>

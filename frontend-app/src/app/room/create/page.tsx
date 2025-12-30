@@ -11,6 +11,7 @@ import {
 } from '@radix-ui/react-icons';
 import { apiClient } from '@/lib/api';
 import { useAuth as useAuthContext } from '@/context/AuthContext';
+import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { RoomForm, type RoomFormData, type WhitelistAddress } from '@/components/pages/rooms/form';
 
 // Package ID from environment variable
@@ -29,6 +30,9 @@ function RoomPageContent() {
     const suiClient = useSuiClient();
     const { isWalletConnected: isWalletApprove } = useAuthContext();
 
+    // Auth guard - check for access token
+    const { isAuthorized, isChecking: isCheckingAuth } = useAuthGuard();
+
     // UI state
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
@@ -40,10 +44,10 @@ function RoomPageContent() {
             return;
         }
 
-        if (whitelist.length === 0) {
-            setError('Add at least one participant to the whitelist');
-            return;
-        }
+        // if (whitelist.length === 0) {
+        //     setError('Add at least one participant to the whitelist');
+        //     return;
+        // }
 
         // Validate registry ID
         if (!REGISTRY_OBJECT_ID) {
@@ -183,7 +187,7 @@ function RoomPageContent() {
                                 throw new Error(`Transaction not found after retries. Digest: ${txDigest}`);
                             }
 
-                            console.log('Transaction confirmed, extracting object ID...');
+                            console.log('Transaction confirmed, extracting object IDs...');
 
                             // Extract the created room object ID and HostCap from object changes
                             let roomObjectId: string | null = null;
@@ -217,9 +221,7 @@ function RoomPageContent() {
 
                             if (createdHostCap && createdHostCap.type === 'created' && createdHostCap.objectId) {
                                 hostCapObjectId = createdHostCap.objectId;
-                                if (hostCapObjectId) {
-                                    console.log('Found HostCap object ID:', hostCapObjectId);
-                                }
+                                console.log('Found HostCap object ID:', hostCapObjectId);
                             }
 
                             // If not found, try effects
@@ -251,7 +253,34 @@ function RoomPageContent() {
 
                             console.log('Room object ID extracted:', roomObjectId);
 
-                            // Step 2: Create room record in backend with on-chain object ID and HostCap
+                            // Query the room object to get seal_policy_id from its fields
+                            console.log('Querying room object to get seal policy ID...');
+                            const roomObject = await suiClient.getObject({
+                                id: roomObjectId,
+                                options: { showContent: true }
+                            });
+
+                            if (!roomObject.data?.content || !('fields' in roomObject.data.content)) {
+                                throw new Error('Failed to query room object or invalid content structure');
+                            }
+
+                            const roomFields = roomObject.data.content.fields as any;
+                            const sealPolicyId = roomFields.seal_policy_id;
+
+                            // Validate seal policy ID (CRITICAL - required for access control)
+                            if (!sealPolicyId) {
+                                const explorerUrl = `https://suiexplorer.com/object/${roomObjectId}?network=testnet`;
+                                throw new Error(
+                                    `Seal Policy ID not found in room object! Room was created but access control is missing. ` +
+                                    `Room Object: ${roomObjectId}. ` +
+                                    `Check explorer: ${explorerUrl}. ` +
+                                    `This is a critical error - the room cannot function without a seal policy.`
+                                );
+                            }
+
+                            console.log('Seal Policy ID extracted from room object:', sealPolicyId);
+
+                            // Step 2: Create room record in backend with on-chain object ID, HostCap, and SealPolicy
                             try {
                                 const response = await apiClient.createRoom({
                                     title: formData.title,
@@ -262,6 +291,7 @@ function RoomPageContent() {
                                     walletAddress: currentAccount.address,
                                     onchainObjectId: roomObjectId,
                                     hostCapId: hostCapObjectId || undefined,
+                                    sealPolicyId: sealPolicyId, // REQUIRED - seal policy for access control
                                 });
                                 console.log('Room created in backend:', response);
                             } catch (backendError) {
@@ -308,6 +338,23 @@ function RoomPageContent() {
             setLoading(false);
         }
     };
+
+    // Auth guard check - show loading while checking
+    if (isCheckingAuth) {
+        return (
+            <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-cyan-50 flex items-center justify-center">
+                <div className="text-center">
+                    <UpdateIcon className="w-12 h-12 animate-spin text-blue-500 mx-auto mb-4" />
+                    <p className="text-gray-600">Checking authentication...</p>
+                </div>
+            </div>
+        );
+    }
+
+    // Not authorized - will redirect to login (return null to prevent flash)
+    if (!isAuthorized) {
+        return null;
+    }
 
     // Create Meeting View
         return (

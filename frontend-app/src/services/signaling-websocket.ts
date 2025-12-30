@@ -13,13 +13,18 @@ export interface ParticipantWithMetadata {
 }
 
 export interface SignalingMessage {
-  type: 'offer' | 'answer' | 'candidate' | 'participant-joined' | 'participant-left' | 'participants-list' | 'participant-metadata' | 'participant-metadata-updated';
+  type: 'offer' | 'answer' | 'candidate' | 'participant-joined' | 'participant-left' | 'participants-list' | 'participant-metadata' | 'participant-metadata-updated' | 'join-request' | 'join-request-approved' | 'join-request-rejected';
   from?: string;
   to?: string;
   data?: any;
   participantId?: string;
   participants?: string[] | ParticipantWithMetadata[];
   metadata?: ParticipantMetadata;
+  // Join request specific fields
+  roomId?: string;
+  requestId?: string;
+  requesterAddress?: string;
+  createdAt?: string;
 }
 
 export type SignalingEventCallback = (message: SignalingMessage) => void;

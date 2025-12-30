@@ -106,10 +106,14 @@ const LocalVideoFeed: React.FC<LocalVideoFeedProps> = ({
       // Initial state check
       updateTrackState();
 
-      // Play the video
-      video.play().catch((err) => {
-        console.error('[LocalVideoFeed] Error playing video:', err);
-      });
+      // Note: autoPlay attribute on video element handles playback
+      // Manual play() not needed and may violate browser autoplay policies
+
+      // Poll track state every 500ms to detect enabled/disabled changes
+      // This is needed because track.enabled changes don't trigger events
+      const pollInterval = setInterval(() => {
+        updateTrackState();
+      }, 500);
 
       // Handle track additions
       const handleAddTrack = (event: MediaStreamTrackEvent) => {
@@ -118,9 +122,7 @@ const LocalVideoFeed: React.FC<LocalVideoFeedProps> = ({
           video.srcObject = stream;
         }
         updateTrackState();
-        video.play().catch((err) => {
-          console.error('[LocalVideoFeed] Error playing video after track addition:', err);
-        });
+        // autoPlay attribute handles playback automatically
       };
 
       // Handle track removals
@@ -146,6 +148,7 @@ const LocalVideoFeed: React.FC<LocalVideoFeedProps> = ({
 
       // Cleanup
       return () => {
+        clearInterval(pollInterval);
         stream.removeEventListener('addtrack', handleAddTrack);
         stream.removeEventListener('removetrack', handleRemoveTrack);
         stream.getTracks().forEach(track => {

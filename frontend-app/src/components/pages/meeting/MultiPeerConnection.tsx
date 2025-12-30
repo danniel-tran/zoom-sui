@@ -25,6 +25,7 @@ export interface MultiPeerConnectionProps {
   onLocalStream: (stream: MediaStream | null) => void;
   onPeersChanged: (peers: Map<string, PeerInfo>) => void;
   onParticipantsChanged?: (participants: OnlineParticipant[]) => void;
+  onSignalingReady?: (signaling: SignalingWebSocket) => void;
   token?: string | null;
   participantName?: string;
   participantRole?: 'host' | 'co-host' | 'guest';
@@ -48,6 +49,7 @@ export default function MultiPeerConnection({
   onLocalStream,
   onPeersChanged,
   onParticipantsChanged,
+  onSignalingReady,
   token,
   participantName,
   participantRole
@@ -148,46 +150,102 @@ export default function MultiPeerConnection({
       });
 
       // Handle video
-      if (videoEnabled && videoTracks.length === 0) {
-        // Need to add video track
+      const hasLiveVideoTrack = videoTracks.some(t => t.readyState === 'live');
+
+      if (videoEnabled && !hasLiveVideoTrack) {
+        // Need to add video track (either no tracks or all tracks are ended)
         try {
+          // Remove any ended/stopped tracks first
+          videoTracks.forEach(track => {
+            if (track.readyState === 'ended') {
+              localStreamRef.current!.removeTrack(track);
+              console.log(`[MultiPeer] Removed ended video track`);
+            }
+          });
+
           const videoStream = await navigator.mediaDevices.getUserMedia({
             video: { width: 1280, height: 720 }
           });
           const newVideoTrack = videoStream.getVideoTracks()[0];
-          localStreamRef.current.addTrack(newVideoTrack);
+          localStreamRef.current!.addTrack(newVideoTrack);
+          console.log(`[MultiPeer] Created new video track`);
 
           // Add to all peer connections and renegotiate
-          peersRef.current.forEach(async (pc, remotePeerId) => {
-            console.log(`[MultiPeer] Adding new video track to peer connection with ${remotePeerId.slice(0, 10)}...`);
-            pc.addTrack(newVideoTrack, localStreamRef.current!);
-
-            // Renegotiate: create and send new offer
-            console.log(`[MultiPeer] Renegotiating with ${remotePeerId.slice(0, 10)}... after adding video track`);
+          // Use for...of instead of forEach to properly await async operations
+          for (const [remotePeerId, pc] of peersRef.current.entries()) {
             try {
+              console.log(`[MultiPeer] Adding new video track to peer connection with ${remotePeerId.slice(0, 10)}...`);
+
+              // Check current senders
+              const currentSenders = pc.getSenders();
+              const videoSender = currentSenders.find(s => s.track?.kind === 'video');
+
+              console.log(`[MultiPeer] Current senders for ${remotePeerId.slice(0, 10)}: ${currentSenders.length}, video sender: ${!!videoSender}`);
+
+              if (videoSender && videoSender.track) {
+                // Replace existing sender's track
+                await videoSender.replaceTrack(newVideoTrack);
+                console.log(`[MultiPeer] Replaced video track for ${remotePeerId.slice(0, 10)}...`);
+              } else {
+                // Add new track
+                pc.addTrack(newVideoTrack, localStreamRef.current!);
+                console.log(`[MultiPeer] Added new video track for ${remotePeerId.slice(0, 10)}...`);
+              }
+
+              // Renegotiate: create and send new offer
+              console.log(`[MultiPeer] Creating offer for ${remotePeerId.slice(0, 10)}...`);
               const offer = await pc.createOffer();
               await pc.setLocalDescription(offer);
+
+              console.log(`[MultiPeer] Sending offer to ${remotePeerId.slice(0, 10)}...`);
               signalingRef.current?.sendOffer(remotePeerId, offer);
-              console.log(`[MultiPeer] Sent renegotiation offer to ${remotePeerId.slice(0, 10)}...`);
+              console.log(`[MultiPeer] ✅ Successfully sent renegotiation offer to ${remotePeerId.slice(0, 10)}...`);
             } catch (err) {
-              console.error(`[MultiPeer] Failed to renegotiate with ${remotePeerId.slice(0, 10)}...:`, err);
+              console.error(`[MultiPeer] ❌ Failed to add track/renegotiate with ${remotePeerId.slice(0, 10)}...:`, err);
             }
-          });
+          }
 
           onLocalStream(localStreamRef.current);
         } catch (err) {
           console.error('[MultiPeer] Failed to add video track:', err);
         }
       } else if (!videoEnabled && videoTracks.length > 0) {
-        // Disable video tracks
+        // Stop and remove video tracks
         videoTracks.forEach(track => {
-          track.enabled = false;
+          track.stop();
+          localStreamRef.current!.removeTrack(track);
         });
-      } else if (videoEnabled && videoTracks.length > 0) {
-        // Enable video tracks
+        console.log(`[MultiPeer] Stopped and removed ${videoTracks.length} video track(s)`);
+
+        // Remove video senders from all peer connections
+        // Use for...of instead of forEach to properly await async operations
+        for (const [remotePeerId, pc] of peersRef.current.entries()) {
+          try {
+            const videoSenders = pc.getSenders().filter(s => s.track?.kind === 'video');
+            for (const sender of videoSenders) {
+              pc.removeTrack(sender);
+            }
+            console.log(`[MultiPeer] Removed ${videoSenders.length} video sender(s) from ${remotePeerId.slice(0, 10)}...`);
+
+            // Renegotiate after removing tracks
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+            signalingRef.current?.sendOffer(remotePeerId, offer);
+            console.log(`[MultiPeer] ✅ Sent renegotiation offer after removing video to ${remotePeerId.slice(0, 10)}...`);
+          } catch (err) {
+            console.error(`[MultiPeer] ❌ Failed to renegotiate with ${remotePeerId.slice(0, 10)}...:`, err);
+          }
+        }
+
+        onLocalStream(localStreamRef.current);
+      } else if (videoEnabled && hasLiveVideoTrack) {
+        // Enable existing live video tracks
         videoTracks.forEach(track => {
-          track.enabled = true;
+          if (track.readyState === 'live') {
+            track.enabled = true;
+          }
         });
+        console.log(`[MultiPeer] Enabled existing video track(s)`);
       }
     };
 
@@ -226,6 +284,11 @@ export default function MultiPeerConnection({
         }
 
         console.log(`[MultiPeer] Signaling connected`);
+
+        // Notify parent that signaling is ready
+        if (onSignalingReady) {
+          onSignalingReady(signaling);
+        }
 
         // Send local participant metadata
         signaling.sendMetadata({

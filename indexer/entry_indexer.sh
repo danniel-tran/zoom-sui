@@ -2,24 +2,24 @@
 
 # Export logging configuration
 export RUST_BACKTRACE="${RUST_BACKTRACE:-1}"
-export RUST_LOG="${RUST_LOG:-info,smashblob_indexer_alt=debug}"
+export RUST_LOG="${RUST_LOG:-info,suimeet-indexer=debug}"
 
 # Build command with all required arguments
-CMD="/opt/mysten/bin/smashblob-indexer-alt"
+CMD="/opt/mysten/bin/suimeet-indexer"
 
 # Required arguments
 CMD="$CMD --database-url \"$DATABASE_URL\""
-CMD="$CMD --game-package-id \"$GAME_PACKAGE_ID\""
-CMD="$CMD --winners-object-id \"$WINNERS_OBJECT_ID\""
-CMD="$CMD --garbage-object-id \"$GARBAGE_OBJECT_ID\""
-CMD="$CMD --game-object-id \"$GAME_OBJECT_ID\""
+# CMD="$CMD --database-url postgresql://postgres:postgres@127.0.0.1:5432/suimeet_indexer"
+# CMD="$CMD --winners-object-id \"$WINNERS_OBJECT_ID\""
+# CMD="$CMD --garbage-object-id \"$GARBAGE_OBJECT_ID\""
+# CMD="$CMD --game-object-id \"$GAME_OBJECT_ID\""
 
 # Dynamic field type tags
-CMD="$CMD --winners-post-type \"$WINNERS_POST_TYPE\""
-CMD="$CMD --winners-prompt-type \"$WINNERS_PROMPT_TYPE\""
-CMD="$CMD --winners-treasury-type \"$WINNERS_TREASURY_TYPE\""
-CMD="$CMD --garbage-epoch-record-type \"$GARBAGE_EPOCH_RECORD_TYPE\""
-CMD="$CMD --treasury-balance-type \"$TREASURY_BALANCE_TYPE\""
+# CMD="$CMD --winners-post-type \"$WINNERS_POST_TYPE\""
+# CMD="$CMD --winners-prompt-type \"$WINNERS_PROMPT_TYPE\""
+# CMD="$CMD --winners-treasury-type \"$WINNERS_TREASURY_TYPE\""
+# CMD="$CMD --garbage-epoch-record-type \"$GARBAGE_EPOCH_RECORD_TYPE\""
+# CMD="$CMD --treasury-balance-type \"$TREASURY_BALANCE_TYPE\""
 
 # Ingestion configuration (with defaults)
 CMD="$CMD --checkpoint-buffer-size ${CHECKPOINT_BUFFER_SIZE:-5000}"
@@ -30,7 +30,7 @@ CMD="$CMD --retry-interval-ms ${RETRY_INTERVAL_MS:-200}"
 if [ -n "$REMOTE_STORE_URL" ]; then
     CMD="$CMD --remote-store-url \"$REMOTE_STORE_URL\""
 elif [ -n "$RPC_API_URL" ]; then
-    CMD="$CMD --rpc-url \"$RPC_API_URL\""
+    CMD="$CMD --rpc-api-url \"$RPC_API_URL\""
     [ -n "$RPC_USERNAME" ] && CMD="$CMD --rpc-username \"$RPC_USERNAME\""
     [ -n "$RPC_PASSWORD" ] && CMD="$CMD --rpc-password \"$RPC_PASSWORD\""
 elif [ -n "$LOCAL_INGESTION_PATH" ]; then

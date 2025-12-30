@@ -1,14 +1,14 @@
 # SuiMeet: Decentralized Video Meetings on Sui Blockchain
 
-Welcome to **SuiMeet**, a web3 meeting platform that combines Zoom-like video calls with the security and ownership of the Sui blockchain. Powered by **Sui Stack Messaging SDK** (alpha, Sep 2025) for end-to-end encrypted calls and **Seal** for wallet-based access control, SuiMeet lets hosts create secure rooms, invite via Sui addresses, and mint attendance NFTs—all while keeping data user-owned. Imagine private, auditable meetings with a web3 twist, no centralized servers required.
+Welcome to **SuiMeet**, a web3 meeting platform that combines Zoom-like video calls with the security and ownership of the Sui blockchain. Powered by **Sui Stack Messaging SDK** (alpha, Sep 2025) for end-to-end encrypted calls and **Seal** for wallet-based access control, SuiMeet lets hosts create secure rooms and invite via Sui addresses—all while keeping data user-owned. Imagine private, auditable meetings with a web3 twist, no centralized servers required.
 
 ## Why SuiMeet?
 
 SuiMeet redefines collaboration in a trust-first world:
-- **Secure Access**: Hosts seal invites with Sui’s Seal SDK—only approved wallets join.
+- **Secure Access**: Hosts seal invites with Sui's Seal SDK—only approved wallets join.
 - **Seamless Calls**: P2P video/audio/chat with <100ms latency via Sui Stack Messaging.
-- **Web3 Perks**: Mint POAP NFTs, sync invites to calendars, and audit via Sui Explorer.
-- **Scalable**: Sui’s 10,000+ TPS handles 100+ participants effortlessly.
+- **Web3 Integration**: Sync invites to calendars, and audit via Sui Explorer.
+- **Scalable**: Sui's 10,000+ TPS handles 100+ participants effortlessly.
 
 Perfect for DAOs, remote teams, or creators building private, monetizable meeting spaces.
 
@@ -16,19 +16,18 @@ Perfect for DAOs, remote teams, or creators building private, monetizable meetin
 
 - **Host-Controlled Rooms**: Create meetings, add Sui addresses, or approve guests via wallet signatures.
 - **Encrypted Video/Chat**: Real-time calls and threaded chats, E2E encrypted with Sui Stack Messaging.
-- **NFT Attendance Badges**: Auto-mint POAPs post-meeting, gated by Seal policies.
 - **Calendar Sync**: Invites sync to Google/Outlook with one-click wallet verification.
 - **Waiting Room**: Guests await host approval, with live participant counts.
 - **Analytics**: On-chain metrics (e.g., attendance rate) without privacy leaks.
 
 ## Architecture
 
-SuiMeet is a full-stack dApp leaning on Sui’s ecosystem:
+SuiMeet is a full-stack dApp leaning on Sui's ecosystem:
 - **Frontend**: Next.js 15 + Tailwind CSS for a responsive UI.
 - **Calling Layer**: Sui Stack Messaging SDK (alpha) for P2P video/audio/chat.
 - **Access Control**: Seal SDK for policy-based invites (time-bound, revocable).
 - **Storage**: Walrus for decentralized file sharing (e.g., screen shares).
-- **Blockchain**: Sui’s Move contracts for rooms, memberships, and POAPs.
+- **Blockchain**: Sui's Move contracts for rooms and memberships.
 - **Wallet**: Sui Wallet Kit + zkLogin for passwordless auth.
 
 See the [architecture flowchart](#architecture-flowchart) for a visual overview.
@@ -97,7 +96,7 @@ Build SuiMeet in 4-6 weeks with these phased tasks:
 |-----------|-----------|----------------------|----------------|---------------------|
 | **1: Foundation (Setup & Seal Auth)** | - Set up Next.js repo with Sui Wallet Kit.<br>- Build host dashboard: Room creation form with Seal policy input.<br>- Deploy basic Move contract for sealed rooms (use Sui’s template + `seal::module`). | 1 | Wallet-gated room creation works on testnet. Seal policies enforce access. | Establishes the core web3 auth flow—Seal’s on-chain policies are your trust anchor. Test early to catch SDK quirks. |
 | **2: Calling Core with Messaging SDK** | - Integrate Sui Stack Messaging SDK for P2P video/audio/chat.<br>- Add calendar export (ICS file) and waiting room UI (seal-pending state).<br>- Hook Seal contract for invite verification. | 1-2 | End-to-end demo: Host creates room, seals invite, guests join, video streams. | Gets the “preferred calling” loop live—key for user testing. SDK’s examples accelerate setup. |
-| **3: Web3 Polish** | - Implement POAP minting after seal-verified meeting end.<br>- Add revocation logic for flaky attendees.<br>- Enable E2E encryption via Messaging SDK keys. | 1 | NFT badges minted; host can revoke access. Encrypted streams verified. | Adds viral web3 hooks (NFTs) and tightens security. Auditable via Sui Explorer. |
+| **3: Web3 Polish** | - Add revocation logic for flaky attendees.<br>- Enable E2E encryption via Messaging SDK keys.<br>- Implement calendar sync integration. | 1 | Host can revoke access. Encrypted streams verified. Calendar invites working. | Tightens security and improves UX. Auditable via Sui Explorer. |
 | **4: Analytics & Launch** | - Build metrics dashboard (query Seal logs for attendance).<br>- Deploy beta to Vercel + Sui mainnet.<br>- Run 5-10 user tests, iterate on UX. | 1 | Beta live with 80%+ join success rate. Basic analytics (e.g., engagement time). | Validates app stability and user flow. Preps for public launch. |
 
 **Notes**:
@@ -122,7 +121,6 @@ flowchart TD
     H --> I
     F -->|Decrypt on Client| J["Participant Devices<br/>(P2P Video/Audio)"]
     J -->|Real-Time Chat| C
-    C -->|Mint POAP| D
 
     classDef userLayer fill:#e1f5fe
     classDef appLogic fill:#f3e5f5

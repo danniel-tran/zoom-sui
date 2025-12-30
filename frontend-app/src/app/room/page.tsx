@@ -15,6 +15,8 @@ import {
     ExclamationTriangleIcon,
 } from '@radix-ui/react-icons';
 import { apiClient } from '@/lib/api';
+import { useRoomAccess } from '@/hooks/useRoomAccess';
+import AccessDeniedModal from '@/components/modals/AccessDeniedModal';
 
 interface RoomListItem {
     roomId: string;
@@ -43,6 +45,19 @@ export default function MyRoomsPage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string>('');
     const [copiedId, setCopiedId] = useState<string | null>(null);
+    const [checkingRoomId, setCheckingRoomId] = useState<string | null>(null);
+    const [accessDeniedModal, setAccessDeniedModal] = useState<{
+        isOpen: boolean;
+        roomTitle: string;
+        roomId: string;
+    }>({
+        isOpen: false,
+        roomTitle: '',
+        roomId: ''
+    });
+    const [requestingJoin, setRequestingJoin] = useState(false);
+    const [requestStatus, setRequestStatus] = useState<'idle' | 'pending' | 'approved' | 'rejected'>('idle');
+    const { checkAccess } = useRoomAccess();
 
     useEffect(() => {
         if (currentAccount?.address) {
@@ -97,6 +112,71 @@ export default function MyRoomsPage() {
 
     const viewOnExplorer = (roomId: string) => {
         window.open(`https://suiexplorer.com/object/${roomId}?network=testnet`, '_blank');
+    };
+
+    const handleJoinRoom = async (room: RoomListItem) => {
+        if (!currentAccount?.address) {
+            setError('Please connect your wallet to join a room');
+            return;
+        }
+        
+
+        // Set this specific room as checking
+        setCheckingRoomId(room.roomId);
+
+        try {
+            // Check if user has access to the room
+            const hasAccess = await checkAccess(room.roomId);
+
+            if (hasAccess) {
+                // User has access, navigate to meeting
+                // Keep loading state during navigation
+                router.push(`/meeting/${room.roomId}`);
+            } else {
+                // User doesn't have access, show modal
+                setAccessDeniedModal({
+                    isOpen: true,
+                    roomTitle: room.title,
+                    roomId: room.roomId
+                });
+                // Clear loading state only when showing modal
+                setCheckingRoomId(null);
+            }
+        } catch (err) {
+            console.error('Failed to check room access:', err);
+            setError(err instanceof Error ? err.message : 'Failed to check room access');
+            // Clear loading state on error
+            setCheckingRoomId(null);
+        }
+    };
+
+    const handleRequestJoin = async () => {
+        if (!currentAccount?.address || !accessDeniedModal.roomId) return;
+
+        setRequestingJoin(true);
+
+        try {
+            // TODO: Call backend API to request join
+            // This would typically create a pending approval request
+            await apiClient.approveGuest(
+                accessDeniedModal.roomId,
+                { guestAddress: currentAccount.address },
+                '' // Token would be needed here
+            );
+
+            // Close modal and show success message
+            setAccessDeniedModal({ isOpen: false, roomTitle: '', roomId: '' });
+            alert('Join request sent! The host will be notified.');
+        } catch (err) {
+            console.error('Failed to request join:', err);
+            alert('Failed to send join request. Please contact the host directly.');
+        } finally {
+            setRequestingJoin(false);
+        }
+    };
+
+    const closeAccessDeniedModal = () => {
+        setAccessDeniedModal({ isOpen: false, roomTitle: '', roomId: '' });
     };
 
     if (!currentAccount) {
@@ -190,6 +270,7 @@ export default function MyRoomsPage() {
                         {rooms.map((room) => {
                             const inviteLink = getInviteLink(room.roomId);
                             const isCopied = copiedId === room.roomId;
+                            const isCheckingThisRoom = checkingRoomId === room.roomId;
 
                             return (
                                 <div key={room.roomId} className="bg-white rounded-xl shadow-lg p-6">
@@ -244,14 +325,24 @@ export default function MyRoomsPage() {
                                                     Explorer
                                                 </button>
                                                 <button
-                                                    className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                                                    className="flex items-center gap-2 px-3 py-2 text-sm text-white bg-gradient-to-r from-blue-500 to-cyan-500 hover:shadow-lg rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                                                     onClick={(e) => {
                                                         e.stopPropagation();
-                                                        router.push(`/meeting/${room.roomId}`);
+                                                        handleJoinRoom(room);
                                                     }}
+                                                    disabled={isCheckingThisRoom}
                                                 >
-                                                    <ArrowRightIcon width="14" height="14" />
-                                                    Join
+                                                    {isCheckingThisRoom ? (
+                                                        <>
+                                                            <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                                            Checking...
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <ArrowRightIcon width="14" height="14" />
+                                                            Join
+                                                        </>
+                                                    )}
                                                 </button>
                                             </div>
                                         </div>
@@ -343,6 +434,17 @@ export default function MyRoomsPage() {
                         })}
                     </div>
                 )}
+
+                {/* Access Denied Modal */}
+                <AccessDeniedModal
+                    isOpen={accessDeniedModal.isOpen}
+                    onClose={closeAccessDeniedModal}
+                    roomTitle={accessDeniedModal.roomTitle}
+                    roomId={accessDeniedModal.roomId}
+                    onRequestJoin={handleRequestJoin}
+                    requesting={requestingJoin}
+                    requestStatus={requestStatus}
+                />
             </div>
         </div>
     );

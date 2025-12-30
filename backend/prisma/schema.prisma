@@ -1,109 +1,26 @@
 generator client {
   provider = "prisma-client-js"
+  output = "../src/db/client"
 }
 
 datasource db {
   provider = "postgresql"
-  // url      = env("DATABASE_URL")
+  url      = env("DATABASE_URL")
 }
 
-/// MeetingRoom indexed from blockchain
-/// Maps to indexer's meeting_rooms table
-/// Core blockchain data is READ-ONLY from backend
-model MeetingRoom {
-  id                       BigInt            @id @default(autoincrement())
-  roomId                   String            @unique @map("room_id") @db.VarChar(66)
-  title                    String
-  hosts                    String[]          @default([])
-  sealPolicyId             String            @unique @map("seal_policy_id") @db.VarChar(66)
-  status                   Int               @default(1) @db.SmallInt
-  maxParticipants          BigInt            @map("max_participants")
-  requireApproval          Boolean           @default(false) @map("require_approval")
-  participantCount         Int               @default(0) @map("participant_count")
-  createdAt                BigInt            @map("created_at")
-  startedAt                BigInt?           @map("started_at")
-  endedAt                  BigInt?           @map("ended_at")
-  checkpointSequenceNumber BigInt            @map("checkpoint_sequence_number")
-  transactionDigest        String            @map("transaction_digest") @db.VarChar(64)
-  indexedAt                DateTime          @default(now()) @map("indexed_at") @db.Timestamp(6)
-  updatedAt                DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
-  approvals                ApprovalRequest[] @relation("roomApprovals")
-  metadata                 RoomMetadata?
-  participants             RoomParticipant[]
+model ApprovalRequest {
+  id                   String        @id @default(cuid())
+  room_id              String        @db.VarChar(66)
+  requester_address    String        @db.VarChar(100)
+  status               String        @default("pending")
+  created_at           DateTime      @default(now()) @db.Timestamp(6)
+  resolved_at          DateTime?     @db.Timestamp(6)
+  resolver_address     String?       @db.VarChar(100)
+  meeting_rooms        meeting_rooms @relation(fields: [room_id], references: [room_id], onDelete: Cascade, onUpdate: NoAction)
 
-  @@index([checkpointSequenceNumber], map: "idx_meeting_rooms_checkpoint")
-  @@index([createdAt(sort: Desc)], map: "idx_meeting_rooms_created_at")
-  @@index([hosts], map: "idx_meeting_rooms_hosts", type: Gin)
-  @@index([sealPolicyId], map: "idx_meeting_rooms_seal_policy_id")
-  @@index([status], map: "idx_meeting_rooms_status")
-  @@index([status, createdAt(sort: Desc)], map: "idx_meeting_rooms_status_created")
-  @@map("meeting_rooms")
-}
-
-/// Room participants indexed from blockchain
-/// Maps to indexer's room_participants table
-/// Backend should treat this as READ-ONLY
-model RoomParticipant {
-  id                 BigInt      @id @default(autoincrement())
-  roomId             String      @map("room_id") @db.VarChar(66)
-  participantAddress String      @map("participant_address") @db.VarChar(66)
-  role               String      @db.VarChar(20)
-  adminCapId         String?     @map("admin_cap_id") @db.VarChar(66)
-  joinedAt           DateTime    @default(now()) @map("joined_at") @db.Timestamp(6)
-  updatedAt          DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
-  meetingRoom        MeetingRoom @relation(fields: [roomId], references: [roomId], onDelete: Cascade, onUpdate: NoAction)
-
-  @@unique([roomId, participantAddress])
-  @@index([participantAddress], map: "idx_room_participants_address")
-  @@index([roomId, role], map: "idx_room_participants_role")
-  @@index([roomId], map: "idx_room_participants_room")
-  @@index([participantAddress, roomId], map: "idx_room_participants_user_rooms")
-  @@map("room_participants")
-}
-
-/// Room metadata (dynamic fields) indexed from blockchain
-/// Maps to indexer's room_metadata table
-/// Backend should treat this as READ-ONLY
-model RoomMetadata {
-  id              BigInt      @id @default(autoincrement())
-  roomId          String      @unique @map("room_id") @db.VarChar(66)
-  dynamicFieldId  String      @unique @map("dynamic_field_id") @db.VarChar(66)
-  dfVersion       BigInt      @map("df_version")
-  language        String
-  timezone        String
-  recordingBlobId Decimal?    @map("recording_blob_id") @db.Decimal(78, 0)
-  indexedAt       DateTime    @default(now()) @map("indexed_at") @db.Timestamp(6)
-  updatedAt       DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
-  meetingRoom     MeetingRoom @relation(fields: [roomId], references: [roomId], onDelete: Cascade, onUpdate: NoAction)
-
-  @@index([dynamicFieldId], map: "idx_room_metadata_df_id")
-  @@index([roomId], map: "idx_room_metadata_room")
-  @@map("room_metadata")
-}
-
-model User {
-  id                   String    @id @default(cuid())
-  primaryWalletAddress String?   @db.VarChar(100)
-  createdAt            DateTime  @default(now()) @db.Timestamp(6)
-  updatedAt            DateTime  @default(now()) @updatedAt @db.Timestamp(6)
-  sessions             Session[]
-  wallets              Wallet[]
-
-  @@index([primaryWalletAddress])
-}
-
-model Wallet {
-  id        String    @id @default(cuid())
-  userId    String
-  address   String    @unique @db.VarChar(100)
-  type      String    @default("sui")
-  status    String    @default("active") @db.VarChar(32)
-  createdAt DateTime  @default(now()) @db.Timestamp(6)
-  updatedAt DateTime  @default(now()) @updatedAt @db.Timestamp(6)
-  sessions  Session[]
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-
-  @@index([userId])
+  @@index([requester_address], map: "ApprovalRequest_requesterAddress_idx")
+  @@index([room_id], map: "ApprovalRequest_roomId_idx")
+  @@index([status])
 }
 
 model AuthNonce {
@@ -114,33 +31,27 @@ model AuthNonce {
   consumedAt    DateTime? @db.Timestamp(6)
   createdAt     DateTime  @default(now()) @db.Timestamp(6)
 
-  @@index([walletAddress])
   @@index([expiresAt])
+  @@index([walletAddress])
 }
 
-model Session {
-  id                  String               @id @default(cuid())
-  userId              String
-  walletId            String
-  jwtId               String               @db.VarChar(255)
-  status              String               @default("active")
-  createdAt           DateTime             @default(now()) @db.Timestamp(6)
-  expiresAt           DateTime             @db.Timestamp(6)
-  lastUsedAt          DateTime             @default(now()) @db.Timestamp(6)
-  ip                  String?              @db.VarChar(64)
-  ua                  String?              @db.VarChar(512)
-  encryptedPrivateKey String?
-  lastPolicyUpdateAt  DateTime?            @db.Timestamp(6)
-  signatures          DelegatedSignature[]
-  ekeys               EphemeralKey[]
-  refresh             RefreshToken?
-  user                User                 @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  wallet              Wallet               @relation(fields: [walletId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+/// DelegatedSignature - audit log for backend auto-signed actions
+/// No scope system - blockchain validates all operations
+/// Tracks: action, roomId, txDigest, timestamp for auditing
+model DelegatedSignature {
+  id        String   @id @default(cuid())
+  sessionId String
+  action    String   @db.VarChar(128) // e.g., "approve_guest", "start_room", "end_room"
+  roomId    String?  @db.VarChar(66) // Room object ID (nullable for non-room actions)
+  txDigest  String?  @db.VarChar(128) // Transaction digest (nullable if tx failed)
+  signature String   @db.VarChar(1024) // The actual signature
+  createdAt DateTime @default(now()) @db.Timestamp(6)
+  session   Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
-  @@index([userId])
-  @@index([walletId])
-  @@index([status])
-  @@index([expiresAt])
+  @@index([sessionId])
+  @@index([action])
+  @@index([roomId])
+  @@index([createdAt])
 }
 
 model RefreshToken {
@@ -151,67 +62,130 @@ model RefreshToken {
   revokedAt       DateTime? @db.Timestamp(6)
   rotationCounter Int       @default(0)
   createdAt       DateTime  @default(now()) @db.Timestamp(6)
-  session         Session   @relation(fields: [sessionId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  Session         Session   @relation(fields: [sessionId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([expiresAt])
-}
-
-model EphemeralKey {
-  id                 String    @id @default(cuid())
-  sessionId          String
-  publicKey          String    @db.VarChar(256)
-  encryptedPublicKey String?   @db.VarChar(512)
-  alg                String    @db.VarChar(64)
-  scope              String    @db.VarChar(512)
-  issuedAt           DateTime  @default(now()) @db.Timestamp(6)
-  expiresAt          DateTime  @db.Timestamp(6)
-  revokedAt          DateTime? @db.Timestamp(6)
-  session            Session   @relation(fields: [sessionId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-
   @@index([sessionId])
-  @@index([expiresAt])
 }
 
-model DelegatedSignature {
-  id             String   @id @default(cuid())
-  sessionId      String
-  txTemplateHash String   @db.VarChar(128)
-  signature      String   @db.VarChar(1024)
-  scope          String   @db.VarChar(512)
-  expiresAt      DateTime @db.Timestamp(6)
-  createdAt      DateTime @default(now()) @db.Timestamp(6)
-  session        Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+model Session {
+  id                  String               @id @default(cuid())
+  userId              String
+  walletId            String
+  jwtId               String               @db.VarChar(255)
+  status              String               @default("active") @db.VarChar(32)
+  createdAt           DateTime             @default(now()) @db.Timestamp(6)
+  expiresAt           DateTime             @db.Timestamp(6)
+  lastUsedAt          DateTime             @default(now()) @db.Timestamp(6)
+  encryptedPrivateKey String?
+  DelegatedSignature  DelegatedSignature[]
+  RefreshToken        RefreshToken?
+  User                User                 @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  Wallet              Wallet               @relation(fields: [walletId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
-  @@index([sessionId])
   @@index([expiresAt])
-}
-
-model ApprovalRequest {
-  id                 String      @id @default(cuid())
-  roomId             String      @map("room_id") @db.VarChar(66)
-  requesterAddress   String      @map("requester_address") @db.VarChar(100)
-  status             String      @default("pending")
-  createdAt          DateTime    @default(now()) @map("created_at") @db.Timestamp(6)
-  resolvedAt         DateTime?   @map("resolved_at") @db.Timestamp(6)
-  resolverAddress    String?     @map("resolver_address") @db.VarChar(100)
-  resolutionTxDigest String?     @map("resolution_tx_digest") @db.VarChar(128)
-  meetingRoom        MeetingRoom @relation("roomApprovals", fields: [roomId], references: [roomId], onDelete: Cascade, onUpdate: NoAction)
-
+  @@index([jwtId])
   @@index([status])
-  @@index([requesterAddress], map: "ApprovalRequest_requesterAddress_idx")
-  @@index([roomId], map: "ApprovalRequest_roomId_idx")
+  @@index([userId])
+  @@index([walletId])
 }
 
-/// Diesel migration tracking table - managed by indexer
+model User {
+  id                   String    @id @default(cuid())
+  primaryWalletAddress String?   @db.VarChar(100)
+  createdAt            DateTime  @default(now()) @db.Timestamp(6)
+  updatedAt            DateTime  @default(now()) @db.Timestamp(6)
+  Session              Session[]
+  Wallet               Wallet[]
+
+  @@index([primaryWalletAddress])
+}
+
+model Wallet {
+  id        String    @id @default(cuid())
+  userId    String
+  address   String    @unique @db.VarChar(100)
+  type      String    @default("sui") @db.VarChar(32)
+  status    String    @default("active") @db.VarChar(32)
+  createdAt DateTime  @default(now()) @db.Timestamp(6)
+  updatedAt DateTime  @default(now()) @db.Timestamp(6)
+  Session   Session[]
+  User      User      @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([address])
+  @@index([userId])
+}
+
 model diesel_schema_migrations {
   version String   @id @db.VarChar(50)
   run_on  DateTime @default(now()) @db.Timestamp(6)
 
-  @@ignore
   @@map("__diesel_schema_migrations")
 }
 
-/// Watermarks table - managed by indexer
+model meeting_rooms {
+  id                         BigInt              @id @default(autoincrement())
+  room_id                    String              @unique @db.VarChar(66)
+  title                      String
+  hosts                      String[]            @default([])
+  seal_policy_id             String              @unique @db.VarChar(66)
+  status                     Int                 @default(1) @db.SmallInt
+  max_participants           BigInt
+  require_approval           Boolean             @default(false)
+  participant_count          Int                 @default(0)
+  created_at                 BigInt
+  started_at                 BigInt?
+  ended_at                   BigInt?
+  checkpoint_sequence_number BigInt
+  transaction_digest         String              @db.VarChar(64)
+  indexed_at                 DateTime            @default(now()) @db.Timestamp(6)
+  updated_at                 DateTime            @default(now()) @db.Timestamp(6)
+  ApprovalRequest            ApprovalRequest[]
+  room_metadata              room_metadata?
+  room_participants          room_participants[]
+
+  @@index([checkpoint_sequence_number], map: "idx_meeting_rooms_checkpoint")
+  @@index([created_at(sort: Desc)], map: "idx_meeting_rooms_created_at")
+  @@index([hosts], map: "idx_meeting_rooms_hosts", type: Gin)
+  @@index([seal_policy_id], map: "idx_meeting_rooms_seal_policy_id")
+  @@index([status], map: "idx_meeting_rooms_status")
+  @@index([status, created_at(sort: Desc)], map: "idx_meeting_rooms_status_created")
+}
+
+model room_metadata {
+  id                BigInt        @id @default(autoincrement())
+  room_id           String        @unique @db.VarChar(66)
+  dynamic_field_id  String        @unique @db.VarChar(66)
+  df_version        BigInt
+  language          String
+  timezone          String
+  recording_blob_id Decimal?      @db.Decimal(78, 0)
+  indexed_at        DateTime      @default(now()) @db.Timestamp(6)
+  updated_at        DateTime      @default(now()) @db.Timestamp(6)
+  meeting_rooms     meeting_rooms @relation(fields: [room_id], references: [room_id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([dynamic_field_id], map: "idx_room_metadata_df_id")
+  @@index([room_id], map: "idx_room_metadata_room")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model room_participants {
+  id                  BigInt        @id @default(autoincrement())
+  room_id             String        @db.VarChar(66)
+  participant_address String        @db.VarChar(66)
+  role                String        @db.VarChar(20)
+  admin_cap_id        String?       @db.VarChar(66)
+  joined_at           DateTime      @default(now()) @db.Timestamp(6)
+  updated_at          DateTime      @default(now()) @db.Timestamp(6)
+  meeting_rooms       meeting_rooms @relation(fields: [room_id], references: [room_id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([room_id, participant_address])
+  @@index([participant_address], map: "idx_room_participants_address")
+  @@index([room_id, role], map: "idx_room_participants_role")
+  @@index([room_id], map: "idx_room_participants_room")
+  @@index([participant_address, room_id], map: "idx_room_participants_user_rooms")
+}
+
 model watermarks {
   pipeline                  String   @id
   epoch_hi_inclusive        BigInt
@@ -221,6 +195,4 @@ model watermarks {
   reader_lo                 BigInt
   pruner_timestamp          DateTime @db.Timestamp(6)
   pruner_hi                 BigInt
-
-  @@ignore
 }

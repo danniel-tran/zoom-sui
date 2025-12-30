@@ -1,6 +1,10 @@
 import { Router, Request, Response } from "express";
-import { prisma } from "../lib/prisma";
-import { authenticateToken } from "../index";
+import { Transaction } from '@mysten/sui/transactions';
+import { SUI_CLOCK_OBJECT_ID } from '@mysten/sui/utils';
+import { prisma } from "../db/prisma";
+import { authenticateToken, wsSignalingServer } from "../index";
+import { checkUserIsHost, getSuiClient, getEphemeralKeypair } from "../utils/blockchain";
+import { config } from "../config";
 
 const router = Router();
 
@@ -44,9 +48,9 @@ router.get("/", async (req: Request, res: Response) => {
           },
         },
         {
-          participants: {
+          room_participants: {
             some: {
-              participantAddress: walletAddress,
+              participant_address: walletAddress,
             },
           },
         },
@@ -70,17 +74,17 @@ router.get("/", async (req: Request, res: Response) => {
     }
 
     // Fetch meeting rooms from indexed data
-    const meetingRooms = await prisma.meetingRoom.findMany({
+    const meetingRooms = await prisma.meeting_rooms.findMany({
       where,
       include: {
-        participants: true,
-        metadata: true,
-        approvals: {
+        room_participants: true,
+        room_metadata: true,
+        ApprovalRequest: {
           where: { status: "pending" },
         },
       },
       orderBy: {
-        createdAt: "desc",
+        created_at: "desc",
       },
       take: 100, // Limit for performance
     });
@@ -95,8 +99,8 @@ router.get("/", async (req: Request, res: Response) => {
             userRole = "HOST";
           } else {
             // Check if user is in participants
-            const participant = room.participants.find(
-              (p) => p.participantAddress === walletAddress
+            const participant = room.room_participants.find(
+              (p) => p.participant_address === walletAddress
             );
             if (participant) {
               userRole = participant.role as "HOST" | "PARTICIPANT";
@@ -105,24 +109,24 @@ router.get("/", async (req: Request, res: Response) => {
         }
 
         return {
-          roomId: room.roomId,
+          roomId: room.room_id,
           title: room.title,
           hosts: room.hosts,
           status: getRoomStatus(room.status),
-          maxParticipants: Number(room.maxParticipants),
-          requireApproval: room.requireApproval,
-          participantCount: room.participantCount,
-          sealPolicyId: room.sealPolicyId,
-          createdAt: unixToDate(room.createdAt),
-          startedAt: unixToDate(room.startedAt),
-          endedAt: unixToDate(room.endedAt),
-          transactionDigest: room.transactionDigest,
+          maxParticipants: Number(room.max_participants),
+          requireApproval: room.require_approval,
+          participantCount: room.participant_count,
+          sealPolicyId: room.seal_policy_id,
+          createdAt: unixToDate(room.created_at),
+          startedAt: unixToDate(room.started_at),
+          endedAt: unixToDate(room.ended_at),
+          transactionDigest: room.transaction_digest,
           // Metadata
-          language: room.metadata?.language,
-          timezone: room.metadata?.timezone,
-          recordingBlobId: room.metadata?.recordingBlobId?.toString(),
+          language: room.room_metadata?.language,
+          timezone: room.room_metadata?.timezone,
+          recordingBlobId: room.room_metadata?.recording_blob_id?.toString(),
           // Backend data
-          pendingApprovals: room.approvals.length,
+          pendingApprovals: room.ApprovalRequest.length,
           // User's role in this room
           userRole,
         };
@@ -150,12 +154,13 @@ router.post("/", async (req: Request, res: Response) => {
       walletAddress,
       onchainObjectId,
       hostCapId,
+      sealPolicyId,
     } = req.body;
 
     // Validate required fields
-    if (!title || !onchainObjectId || !walletAddress) {
+    if (!title || !onchainObjectId || !walletAddress || !sealPolicyId) {
       return res.status(400).json({
-        error: "Missing required fields: title, onchainObjectId, walletAddress",
+        error: "Missing required fields: title, onchainObjectId, walletAddress, sealPolicyId",
       });
     }
 
@@ -166,40 +171,96 @@ router.post("/", async (req: Request, res: Response) => {
       });
     }
 
-    // Check if room already exists (indexer may have already indexed it)
-    const existingRoom = await prisma.meetingRoom.findUnique({
-      where: { roomId: onchainObjectId },
+    // Validate sealPolicyId format (CRITICAL for access control)
+    if (!sealPolicyId.startsWith("0x") || sealPolicyId.length !== 66) {
+      return res.status(400).json({
+        error: "Invalid sealPolicyId format - seal policy is required for access control",
+      });
+    }
+
+    // Check if room already exists
+    const existingRoom = await prisma.meeting_rooms.findUnique({
+      where: { room_id: onchainObjectId },
     });
 
     if (existingRoom) {
-      // Room already indexed, return success
+      // Room already exists, return it
       return res.json({
         room: {
-          id: existingRoom.roomId,
-          onchainObjectId: existingRoom.roomId,
+          id: existingRoom.room_id,
+          onchainObjectId: existingRoom.room_id,
           title: existingRoom.title,
-          requireApproval: existingRoom.requireApproval,
-          createdAt: unixToDate(existingRoom.createdAt),
+          requireApproval: existingRoom.require_approval,
+          createdAt: unixToDate(existingRoom.created_at),
         },
-        memberships: existingRoom.participantCount,
+        memberships: existingRoom.participant_count,
         indexed: true,
       });
     }
 
-    // Room not yet indexed - this is normal, indexer will pick it up
-    // Return success response acknowledging the creation
-    // The frontend can poll GET /api/rooms/:roomId to check when it's indexed
+    // Create room record in database
+    // Note: Some fields will be populated by the indexer later (checkpoint, tx digest, etc.)
+    const currentTimestamp = BigInt(Math.floor(Date.now() / 1000));
+
+    const newRoom = await prisma.meeting_rooms.create({
+      data: {
+        room_id: onchainObjectId,
+        title: title,
+        hosts: [walletAddress], // Creator is the initial host
+        status: 1, // scheduled
+        max_participants: BigInt(maxParticipants || 20),
+        require_approval: requireApproval || false,
+        participant_count: initialParticipants?.length || 1,
+        seal_policy_id: sealPolicyId, // REQUIRED - seal policy for access control
+        created_at: currentTimestamp,
+        started_at: BigInt(0),
+        ended_at: BigInt(0),
+        transaction_digest: '', // Will be updated by indexer
+        checkpoint_sequence_number: BigInt(0), // Will be updated by indexer
+      },
+    });
+
+    // Create host participant record (always create, even if hostCapId not provided yet)
+    await prisma.room_participants.create({
+      data: {
+        room_id: onchainObjectId,
+        participant_address: walletAddress,
+        role: 'HOST',
+        admin_cap_id: hostCapId || null, // Can be null initially, will be updated by indexer
+        joined_at: new Date(),
+      },
+    });
+
+    // Create initial participant records if provided
+    if (initialParticipants && Array.isArray(initialParticipants)) {
+      const participantRecords = initialParticipants
+        .filter((addr: string) => addr.toLowerCase() !== walletAddress.toLowerCase()) // Don't duplicate host
+        .map((addr: string) => ({
+          room_id: onchainObjectId,
+          participant_address: addr,
+          role: 'PARTICIPANT',
+          admin_cap_id: null,
+          joined_at: new Date(),
+        }));
+
+      if (participantRecords.length > 0) {
+        await prisma.room_participants.createMany({
+          data: participantRecords,
+        });
+      }
+    }
+
     res.json({
       room: {
-        id: onchainObjectId,
-        onchainObjectId: onchainObjectId,
-        title: title,
-        requireApproval: requireApproval || false,
-        createdAt: new Date(),
+        id: newRoom.room_id,
+        onchainObjectId: newRoom.room_id,
+        title: newRoom.title,
+        requireApproval: newRoom.require_approval,
+        createdAt: unixToDate(newRoom.created_at),
       },
-      memberships: initialParticipants?.length || 0,
+      memberships: newRoom.participant_count,
       indexed: false,
-      message: "Room creation acknowledged. Waiting for indexer to sync...",
+      message: "Room created successfully. Indexer will sync additional data.",
     });
   } catch (error) {
     console.error("Error creating room:", error);
@@ -215,19 +276,19 @@ router.get("/:roomId", async (req: Request, res: Response) => {
   try {
     const { roomId } = req.params;
 
-    const meetingRoom = await prisma.meetingRoom.findUnique({
-      where: { roomId },
+    const meetingRoom = await prisma.meeting_rooms.findUnique({
+      where: { room_id: roomId },
       include: {
-        participants: {
+        room_participants: {
           orderBy: {
-            joinedAt: "desc",
+            joined_at: "desc",
           },
         },
-        metadata: true,
-        approvals: {
+        room_metadata: true,
+        ApprovalRequest: {
           where: { status: "pending" },
           orderBy: {
-            createdAt: "desc",
+            created_at: "desc",
           },
         },
       },
@@ -238,47 +299,47 @@ router.get("/:roomId", async (req: Request, res: Response) => {
     }
 
     // Separate hosts and participants
-    const hosts = meetingRoom.participants.filter((p) => p.role === "HOST");
-    const participants = meetingRoom.participants.filter(
-      (p) => p.role === "PARTICIPANT"
+    const hosts = meetingRoom.room_participants.filter((p: any) => p.role === "HOST");
+    const participants = meetingRoom.room_participants.filter(
+      (p: any) => p.role === "PARTICIPANT"
     );
 
     res.json({
       room: {
-        roomId: meetingRoom.roomId,
+        roomId: meetingRoom.room_id,
         title: meetingRoom.title,
         status: getRoomStatus(meetingRoom.status),
-        maxParticipants: Number(meetingRoom.maxParticipants),
-        requireApproval: meetingRoom.requireApproval,
-        participantCount: meetingRoom.participantCount,
-        sealPolicyId: meetingRoom.sealPolicyId,
-        createdAt: unixToDate(meetingRoom.createdAt),
-        startedAt: unixToDate(meetingRoom.startedAt),
-        endedAt: unixToDate(meetingRoom.endedAt),
-        transactionDigest: meetingRoom.transactionDigest,
-        checkpointSequenceNumber: Number(meetingRoom.checkpointSequenceNumber),
+        maxParticipants: Number(meetingRoom.max_participants),
+        requireApproval: meetingRoom.require_approval,
+        participantCount: meetingRoom.participant_count,
+        sealPolicyId: meetingRoom.seal_policy_id,
+        createdAt: unixToDate(meetingRoom.created_at),
+        startedAt: unixToDate(meetingRoom.started_at),
+        endedAt: unixToDate(meetingRoom.ended_at),
+        transactionDigest: meetingRoom.transaction_digest,
+        checkpointSequenceNumber: Number(meetingRoom.checkpoint_sequence_number),
       },
-      hosts: hosts.map((h) => ({
-        address: h.participantAddress,
-        adminCapId: h.adminCapId,
-        joinedAt: h.joinedAt,
+      hosts: hosts.map((h: any) => ({
+        address: h.participant_address || h.participantAddress, // Try both field names
+        adminCapId: h.admin_cap_id || h.adminCapId,
+        joinedAt: h.joined_at || h.joinedAt,
       })),
-      participants: participants.map((p) => ({
-        address: p.participantAddress,
-        joinedAt: p.joinedAt,
+      participants: participants.map((p: any) => ({
+        address: p.participant_address || p.participantAddress,
+        joinedAt: p.joined_at || p.joinedAt,
       })),
-      metadata: meetingRoom.metadata
+      metadata: meetingRoom.room_metadata
         ? {
-            language: meetingRoom.metadata.language,
-            timezone: meetingRoom.metadata.timezone,
-            recordingBlobId: meetingRoom.metadata.recordingBlobId?.toString(),
-            dynamicFieldId: meetingRoom.metadata.dynamicFieldId,
-          }
+          language: meetingRoom.room_metadata.language,
+          timezone: meetingRoom.room_metadata.timezone,
+          recordingBlobId: meetingRoom.room_metadata.recording_blob_id?.toString(),
+          dynamicFieldId: meetingRoom.room_metadata.dynamic_field_id,
+        }
         : null,
-      pendingApprovals: meetingRoom.approvals.map((a) => ({
+      pendingApprovals: meetingRoom.ApprovalRequest.map((a) => ({
         id: a.id,
-        requesterAddress: a.requesterAddress,
-        createdAt: a.createdAt,
+        requesterAddress: a.requester_address,
+        createdAt: a.created_at,
       })),
     });
   } catch (error) {
@@ -302,9 +363,13 @@ router.post(
       const { roomId } = req.params;
       const walletAddress = req.user!.wal; // JWT payload contains 'wal' property (wallet address)
 
+      console.log('[Approval] ===== JOIN REQUEST RECEIVED =====');
+      console.log('[Approval] Room ID:', roomId.slice(0, 10) + '...');
+      console.log('[Approval] Requester:', walletAddress.slice(0, 10) + '...');
+
       // Check if room exists
-      const meetingRoom = await prisma.meetingRoom.findUnique({
-        where: { roomId },
+      const meetingRoom = await prisma.meeting_rooms.findUnique({
+        where: { room_id: roomId },
       });
 
       if (!meetingRoom) {
@@ -312,18 +377,18 @@ router.post(
       }
 
       // Check if room requires approval
-      if (!meetingRoom.requireApproval) {
+      if (!meetingRoom.require_approval) {
         return res
           .status(400)
           .json({ error: "Room does not require approval" });
       }
 
       // Check if already a participant
-      const existingParticipant = await prisma.roomParticipant.findUnique({
+      const existingParticipant = await prisma.room_participants.findUnique({
         where: {
-          roomId_participantAddress: {
-            roomId,
-            participantAddress: walletAddress,
+          room_id_participant_address: {
+            room_id: roomId,
+            participant_address: walletAddress,
           },
         },
       });
@@ -335,35 +400,61 @@ router.post(
       // Check for existing pending approval
       const existingApproval = await prisma.approvalRequest.findFirst({
         where: {
-          roomId,
-          requesterAddress: walletAddress,
+          room_id: roomId,
+          requester_address: walletAddress,
           status: "pending",
         },
       });
+
+      let approvalRequest;
 
       if (existingApproval) {
-        return res
-          .status(400)
-          .json({ error: "Approval request already pending" });
+        // Update existing request's timestamp to bump it up (user is re-requesting)
+        console.log('[Approval] Re-request detected, updating timestamp for:', walletAddress);
+        approvalRequest = await prisma.approvalRequest.update({
+          where: { id: existingApproval.id },
+          data: {
+            created_at: new Date(), // Update timestamp to current time
+          },
+        });
+      } else {
+        // Create new approval request
+        console.log('[Approval] Creating new request for:', walletAddress);
+        approvalRequest = await prisma.approvalRequest.create({
+          data: {
+            room_id: roomId,
+            requester_address: walletAddress,
+            status: "pending",
+          },
+        });
       }
 
-      // Create approval request
-      const approvalRequest = await prisma.approvalRequest.create({
-        data: {
-          roomId,
-          requesterAddress: walletAddress,
-          status: "pending",
-        },
-      });
+      // Notify all hosts via WebSocket
+      console.log('[Approval] Approval request created/updated successfully');
+      console.log('[Approval] Notifying hosts:', meetingRoom.hosts.map(h => h.slice(0, 10) + '...'));
+      console.log('[Approval] Request ID:', approvalRequest.id);
+
+      wsSignalingServer.notifyHostsOfJoinRequest(
+        roomId,
+        meetingRoom.hosts,
+        {
+          id: approvalRequest.id,
+          requesterAddress: approvalRequest.requester_address,
+          createdAt: approvalRequest.created_at,
+        }
+      );
+
+      console.log('[Approval] WebSocket notification sent');
 
       res.json({
         approvalRequest: {
           id: approvalRequest.id,
-          roomId: approvalRequest.roomId,
-          requesterAddress: approvalRequest.requesterAddress,
+          roomId: approvalRequest.room_id,
+          requesterAddress: approvalRequest.requester_address,
           status: approvalRequest.status,
-          createdAt: approvalRequest.createdAt,
+          createdAt: approvalRequest.created_at,
         },
+        isRetry: !!existingApproval, // Indicate if this was a retry
       });
     } catch (error) {
       console.error("Error creating approval request:", error);
@@ -375,6 +466,7 @@ router.post(
 /**
  * POST /api/rooms/:roomId/approve/:requestId
  * Approve a guest approval request
+ * Flow: Frontend executes on-chain tx -> Calls this endpoint with txDigest -> Database update -> WebSocket notification
  * Only room hosts can approve
  */
 router.post(
@@ -382,16 +474,40 @@ router.post(
   async (req: Request, res: Response) => {
     try {
       const { roomId, requestId } = req.params;
-      const { txDigest } = req.body; // Transaction digest from on-chain approval
+      const { txDigest } = req.body; // Transaction digest from frontend (after on-chain approval)
       const walletAddress = req.user!.wal;
 
+      console.log('[Approve] ===== APPROVAL REQUEST STARTED =====');
+      console.log('[Approve] Request ID:', requestId);
+      console.log('[Approve] Room ID:', roomId.slice(0, 10) + '...');
+      console.log('[Approve] Host:', walletAddress.slice(0, 10) + '...');
+      console.log('[Approve] TX Digest:', txDigest || 'none provided');
+
+      // Get the approval request to find the guest address
+      const approvalRequest = await prisma.approvalRequest.findFirst({
+        where: {
+          id: requestId,
+          room_id: roomId,
+          status: "pending",
+        },
+      });
+
+      if (!approvalRequest) {
+        return res.status(404).json({
+          error: "Approval request not found or already processed"
+        });
+      }
+
+      const guestAddress = approvalRequest.requester_address;
+      console.log('[Approve] Guest to approve:', guestAddress.slice(0, 10) + '...');
+
       // Verify room exists and user is a host
-      const meetingRoom = await prisma.meetingRoom.findUnique({
-        where: { roomId },
+      const meetingRoom = await prisma.meeting_rooms.findUnique({
+        where: { room_id: roomId },
         include: {
-          participants: {
+          room_participants: {
             where: {
-              participantAddress: walletAddress,
+              participant_address: walletAddress,
               role: "HOST",
             },
           },
@@ -402,40 +518,61 @@ router.post(
         return res.status(404).json({ error: "Room not found" });
       }
 
-      if (meetingRoom.participants.length === 0) {
+      if (meetingRoom.room_participants.length === 0) {
         return res
           .status(403)
           .json({ error: "Only room hosts can approve guests" });
       }
 
-      // Update approval request
-      const approvalRequest = await prisma.approvalRequest.updateMany({
+      // Add participant to database
+      console.log('[Approve] Adding participant to database...');
+      try {
+        await prisma.room_participants.create({
+          data: {
+            room_id: roomId,
+            participant_address: guestAddress,
+            role: 'PARTICIPANT',
+          },
+        });
+        console.log('[Approve] Participant added to database');
+      } catch (dbError: any) {
+        // Ignore duplicate key errors (participant already exists)
+        if (dbError.code !== 'P2002') {
+          throw dbError;
+        }
+        console.log('[Approve] Participant already in database, skipping');
+      }
+
+      // Update approval request status
+      console.log('[Approve] Updating approval request status...');
+      await prisma.approvalRequest.updateMany({
         where: {
           id: requestId,
-          roomId,
-          status: "pending",
+          room_id: roomId,
         },
         data: {
           status: "approved",
-          resolvedAt: new Date(),
-          resolverAddress: walletAddress,
-          resolutionTxDigest: txDigest || null,
+          resolved_at: new Date(),
+          resolver_address: walletAddress,
         },
       });
 
-      if (approvalRequest.count === 0) {
-        return res
-          .status(404)
-          .json({ error: "Approval request not found or already processed" });
-      }
+      // Send WebSocket notification to guest
+      console.log('[Approve] Sending WebSocket notification to guest...');
+      wsSignalingServer.notifyGuestApproved(roomId, guestAddress, walletAddress);
 
+      console.log('[Approve] ===== APPROVAL COMPLETED SUCCESSFULLY =====');
       res.json({
-        message: "Approval request approved",
+        message: "Guest approved and added to room",
         txDigest: txDigest || null,
+        guestAddress,
       });
     } catch (error) {
-      console.error("Error approving guest:", error);
-      res.status(500).json({ error: "Failed to approve guest" });
+      console.error("[Approve] Error approving guest:", error);
+      res.status(500).json({
+        error: "Failed to approve guest",
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
     }
   }
 );
@@ -443,6 +580,7 @@ router.post(
 /**
  * POST /api/rooms/:roomId/deny/:requestId
  * Deny a guest approval request
+ * Updates database and sends real-time notification
  * Only room hosts can deny
  */
 router.post("/:roomId/deny/:requestId", async (req: Request, res: Response) => {
@@ -450,13 +588,36 @@ router.post("/:roomId/deny/:requestId", async (req: Request, res: Response) => {
     const { roomId, requestId } = req.params;
     const walletAddress = req.user!.wal;
 
+    console.log('[Deny] ===== DENIAL REQUEST STARTED =====');
+    console.log('[Deny] Request ID:', requestId);
+    console.log('[Deny] Room ID:', roomId.slice(0, 10) + '...');
+    console.log('[Deny] Host:', walletAddress.slice(0, 10) + '...');
+
+    // Get the approval request to find the guest address
+    const approvalRequest = await prisma.approvalRequest.findFirst({
+      where: {
+        id: requestId,
+        room_id: roomId,
+        status: "pending",
+      },
+    });
+
+    if (!approvalRequest) {
+      return res.status(404).json({
+        error: "Approval request not found or already processed"
+      });
+    }
+
+    const guestAddress = approvalRequest.requester_address;
+    console.log('[Deny] Guest to deny:', guestAddress.slice(0, 10) + '...');
+
     // Verify room exists and user is a host
-    const meetingRoom = await prisma.meetingRoom.findUnique({
-      where: { roomId },
+    const meetingRoom = await prisma.meeting_rooms.findUnique({
+      where: { room_id: roomId },
       include: {
-        participants: {
+        room_participants: {
           where: {
-            participantAddress: walletAddress,
+            participant_address: walletAddress,
             role: "HOST",
           },
         },
@@ -467,36 +628,499 @@ router.post("/:roomId/deny/:requestId", async (req: Request, res: Response) => {
       return res.status(404).json({ error: "Room not found" });
     }
 
-    if (meetingRoom.participants.length === 0) {
+    if (meetingRoom.room_participants.length === 0) {
       return res.status(403).json({ error: "Only room hosts can deny guests" });
     }
 
-    // Update approval request
-    const approvalRequest = await prisma.approvalRequest.updateMany({
+    // Update approval request status
+    console.log('[Deny] Updating approval request status...');
+    await prisma.approvalRequest.updateMany({
       where: {
         id: requestId,
-        roomId,
-        status: "pending",
+        room_id: roomId,
       },
       data: {
         status: "denied",
-        resolvedAt: new Date(),
-        resolverAddress: walletAddress,
+        resolved_at: new Date(),
+        resolver_address: walletAddress,
       },
     });
 
-    if (approvalRequest.count === 0) {
-      return res
-        .status(404)
-        .json({ error: "Approval request not found or already processed" });
-    }
+    // Send WebSocket notification to guest
+    console.log('[Deny] Sending WebSocket notification to guest...');
+    wsSignalingServer.notifyGuestRejected(roomId, guestAddress, walletAddress);
 
+    console.log('[Deny] ===== DENIAL COMPLETED SUCCESSFULLY =====');
     res.json({
       message: "Approval request denied",
+      guestAddress,
     });
   } catch (error) {
-    console.error("Error denying guest:", error);
-    res.status(500).json({ error: "Failed to deny guest" });
+    console.error("[Deny] Error denying guest:", error);
+    res.status(500).json({
+      error: "Failed to deny guest",
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+/**
+ * POST /api/rooms/:roomId/approve-status/:guestAddress
+ * Update approval request status after frontend signing
+ * Called after host approves guest on frontend
+ */
+router.post("/:roomId/approve-status/:guestAddress", async (req: Request, res: Response) => {
+  try {
+    const { roomId, guestAddress } = req.params;
+    const { txDigest } = req.body; // Transaction digest from frontend signing
+    const walletAddress = req.user!.wal;
+
+    // Validate addresses
+    if (!guestAddress.startsWith('0x') || guestAddress.length !== 66) {
+      return res.status(400).json({ error: 'Invalid guest address format' });
+    }
+    if (!roomId.startsWith('0x') || roomId.length !== 66) {
+      return res.status(400).json({ error: 'Invalid room ID format' });
+    }
+
+    // Verify user is host on blockchain
+    let isHost: boolean;
+    try {
+      isHost = await checkUserIsHost(roomId, walletAddress);
+    } catch (error) {
+      console.error('Error checking host status:', error);
+      return res.status(500).json({
+        error: 'Failed to verify host status on blockchain',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+
+    if (!isHost) {
+      return res.status(403).json({ error: 'Only room hosts can approve guests' });
+    }
+
+    // Update approval request status
+    const updateResult = await prisma.approvalRequest.updateMany({
+      where: {
+        room_id: roomId,
+        requester_address: guestAddress,
+        status: 'pending',
+      },
+      data: {
+        status: 'approved',
+        resolved_at: new Date(),
+        resolver_address: walletAddress,
+      },
+    });
+
+    if (updateResult.count === 0) {
+      return res.status(404).json({
+        error: 'Approval request not found or already processed',
+      });
+    }
+
+    // Notify guest via WebSocket that they've been approved
+    wsSignalingServer.notifyGuestApproved(roomId, guestAddress, walletAddress);
+
+    res.json({
+      success: true,
+      txDigest: txDigest || null,
+      guestAddress,
+      message: 'Approval request updated successfully',
+    });
+  } catch (error) {
+    console.error('Error updating approval status:', error);
+    res.status(500).json({
+      error: 'Failed to update approval status',
+      details: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+/**
+ * POST /api/rooms/:roomId/revoke/:userAddress
+ * Revoke user access from room using ephemeral key (auto-sign)
+ * Only room hosts can revoke
+ */
+router.post("/:roomId/revoke/:userAddress", async (req: Request, res: Response) => {
+  try {
+    const { roomId, userAddress } = req.params;
+    const walletAddress = req.user!.wal;
+    const sessionId = req.user!.sid;
+
+    // Validate addresses
+    if (!userAddress.startsWith('0x') || userAddress.length !== 66) {
+      return res.status(400).json({ error: 'Invalid user address format' });
+    }
+    if (!roomId.startsWith('0x') || roomId.length !== 66) {
+      return res.status(400).json({ error: 'Invalid room ID format' });
+    }
+
+    // Verify user is host on blockchain
+    let isHost: boolean;
+    try {
+      isHost = await checkUserIsHost(roomId, walletAddress);
+    } catch (error) {
+      console.error('Error checking host status:', error);
+      return res.status(500).json({
+        error: 'Failed to verify host status on blockchain',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+
+    if (!isHost) {
+      return res.status(403).json({ error: 'Only room hosts can revoke users' });
+    }
+
+    // Get active session with ephemeral key
+    const session = await prisma.session.findFirst({
+      where: {
+        id: sessionId,
+        status: 'active',
+        expiresAt: { gt: new Date() },
+      },
+    });
+
+    if (!session || !session.encryptedPrivateKey) {
+      return res.status(401).json({ error: 'Session not found or missing ephemeral key' });
+    }
+
+    // Get HostCap owned by user for this room
+    const suiClient = getSuiClient();
+    const hostCaps = await suiClient.getOwnedObjects({
+      owner: walletAddress,
+      filter: { StructType: `${config.suiPackageId}::sealmeet::HostCap` },
+      options: { showContent: true },
+    });
+
+    let hostCapId: string | null = null;
+    for (const cap of hostCaps.data) {
+      const fields = (cap.data?.content as any)?.fields;
+      if (fields?.room_id === roomId) {
+        hostCapId = cap.data!.objectId;
+        break;
+      }
+    }
+
+    if (!hostCapId) {
+      return res.status(404).json({ error: 'HostCap not found for this room' });
+    }
+
+    // Decrypt ephemeral keypair and build transaction
+    const ephemeralKeypair = getEphemeralKeypair(session.encryptedPrivateKey);
+
+    const tx = new Transaction();
+    tx.moveCall({
+      target: `${config.suiPackageId}::sealmeet::revoke_guest`,
+      arguments: [
+        tx.object(hostCapId),
+        tx.object(roomId),
+        tx.pure.address(userAddress),
+        tx.object(SUI_CLOCK_OBJECT_ID),
+      ],
+    });
+
+    // Sign and execute transaction with ephemeral key (no wallet popup!)
+    const signedTx = await tx.sign({ client: suiClient, signer: ephemeralKeypair });
+    const result = await suiClient.executeTransactionBlock({
+      transactionBlock: signedTx.bytes,
+      signature: signedTx.signature,
+      options: {
+        showEffects: true,
+        showObjectChanges: true,
+      },
+    });
+
+    const txDigest = result.digest;
+
+    // Log in DelegatedSignature for audit trail
+    await prisma.delegatedSignature.create({
+      data: {
+        sessionId: session.id,
+        action: 'revoke_guest',
+        roomId: roomId,
+        txDigest: txDigest,
+        signature: signedTx.signature,
+      },
+    });
+
+    res.json({
+      success: true,
+      txDigest,
+      userAddress,
+      message: 'User access revoked successfully',
+    });
+  } catch (error) {
+    console.error('Error revoking user:', error);
+    res.status(500).json({
+      error: 'Failed to revoke user access',
+      details: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+/**
+ * POST /api/rooms/:roomId/recording/start
+ * Start recording for room (placeholder - updates metadata)
+ * Only room hosts can start recording
+ */
+router.post("/:roomId/recording/start", async (req: Request, res: Response) => {
+  try {
+    const { roomId } = req.params;
+    const walletAddress = req.user!.wal;
+    const sessionId = req.user!.sid;
+
+    // Validate room ID
+    if (!roomId.startsWith('0x') || roomId.length !== 66) {
+      return res.status(400).json({ error: 'Invalid room ID format' });
+    }
+
+    // Verify user is host on blockchain
+    let isHost: boolean;
+    try {
+      isHost = await checkUserIsHost(roomId, walletAddress);
+    } catch (error) {
+      console.error('Error checking host status:', error);
+      return res.status(500).json({
+        error: 'Failed to verify host status on blockchain',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+
+    if (!isHost) {
+      return res.status(403).json({ error: 'Only room hosts can start recording' });
+    }
+
+    // Get active session
+    const session = await prisma.session.findFirst({
+      where: {
+        id: sessionId,
+        status: 'active',
+        expiresAt: { gt: new Date() },
+      },
+    });
+
+    if (!session) {
+      return res.status(401).json({ error: 'Session not found' });
+    }
+
+    // Log action in DelegatedSignature (no tx for now - this is placeholder)
+    await prisma.delegatedSignature.create({
+      data: {
+        sessionId: session.id,
+        action: 'recording_start',
+        roomId: roomId,
+        txDigest: null,
+        signature: '',
+      },
+    });
+
+    res.json({
+      success: true,
+      message: 'Recording started (placeholder)',
+      roomId,
+    });
+  } catch (error) {
+    console.error('Error starting recording:', error);
+    res.status(500).json({
+      error: 'Failed to start recording',
+      details: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+/**
+ * POST /api/rooms/:roomId/recording/stop
+ * Stop recording for room (placeholder - updates metadata with blob ID)
+ * Only room hosts can stop recording
+ */
+router.post("/:roomId/recording/stop", async (req: Request, res: Response) => {
+  try {
+    const { roomId } = req.params;
+    const { blobId } = req.body; // Optional Walrus blob ID
+    const walletAddress = req.user!.wal;
+    const sessionId = req.user!.sid;
+
+    // Validate room ID
+    if (!roomId.startsWith('0x') || roomId.length !== 66) {
+      return res.status(400).json({ error: 'Invalid room ID format' });
+    }
+
+    // Verify user is host on blockchain
+    let isHost: boolean;
+    try {
+      isHost = await checkUserIsHost(roomId, walletAddress);
+    } catch (error) {
+      console.error('Error checking host status:', error);
+      return res.status(500).json({
+        error: 'Failed to verify host status on blockchain',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+
+    if (!isHost) {
+      return res.status(403).json({ error: 'Only room hosts can stop recording' });
+    }
+
+    // Get active session
+    const session = await prisma.session.findFirst({
+      where: {
+        id: sessionId,
+        status: 'active',
+        expiresAt: { gt: new Date() },
+      },
+    });
+
+    if (!session) {
+      return res.status(401).json({ error: 'Session not found' });
+    }
+
+    // Log action in DelegatedSignature (no tx for now - this is placeholder)
+    await prisma.delegatedSignature.create({
+      data: {
+        sessionId: session.id,
+        action: 'recording_stop',
+        roomId: roomId,
+        txDigest: null,
+        signature: '',
+      },
+    });
+
+    res.json({
+      success: true,
+      message: 'Recording stopped (placeholder)',
+      roomId,
+      blobId: blobId || null,
+    });
+  } catch (error) {
+    console.error('Error stopping recording:', error);
+    res.status(500).json({
+      error: 'Failed to stop recording',
+      details: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+/**
+ * POST /api/rooms/:roomId/end
+ * End room using ephemeral key (auto-sign)
+ * Only room hosts can end room
+ */
+router.post("/:roomId/end", async (req: Request, res: Response) => {
+  try {
+    const { roomId } = req.params;
+    const walletAddress = req.user!.wal;
+    const sessionId = req.user!.sid;
+
+    // Validate room ID
+    if (!roomId.startsWith('0x') || roomId.length !== 66) {
+      return res.status(400).json({ error: 'Invalid room ID format' });
+    }
+
+    // Verify user is host on blockchain
+    let isHost: boolean;
+    try {
+      isHost = await checkUserIsHost(roomId, walletAddress);
+    } catch (error) {
+      console.error('Error checking host status:', error);
+      return res.status(500).json({
+        error: 'Failed to verify host status on blockchain',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+
+    if (!isHost) {
+      return res.status(403).json({ error: 'Only room hosts can end room' });
+    }
+
+    // Get active session with ephemeral key
+    const session = await prisma.session.findFirst({
+      where: {
+        id: sessionId,
+        status: 'active',
+        expiresAt: { gt: new Date() },
+      },
+    });
+
+    if (!session || !session.encryptedPrivateKey) {
+      return res.status(401).json({ error: 'Session not found or missing ephemeral key' });
+    }
+
+    // Get HostCap owned by user for this room
+    const suiClient = getSuiClient();
+    const hostCaps = await suiClient.getOwnedObjects({
+      owner: walletAddress,
+      filter: { StructType: `${config.suiPackageId}::sealmeet::HostCap` },
+      options: { showContent: true },
+    });
+
+    let hostCapId: string | null = null;
+    for (const cap of hostCaps.data) {
+      const fields = (cap.data?.content as any)?.fields;
+      if (fields?.room_id === roomId) {
+        hostCapId = cap.data!.objectId;
+        break;
+      }
+    }
+
+    if (!hostCapId) {
+      return res.status(404).json({ error: 'HostCap not found for this room' });
+    }
+
+    // Get registry object ID from environment
+    const registryId = process.env.REGISTRY_OBJECT_ID;
+    if (!registryId) {
+      return res.status(500).json({ error: 'REGISTRY_OBJECT_ID not configured' });
+    }
+
+    // Decrypt ephemeral keypair and build transaction
+    const ephemeralKeypair = getEphemeralKeypair(session.encryptedPrivateKey);
+
+    const tx = new Transaction();
+    tx.moveCall({
+      target: `${config.suiPackageId}::sealmeet::end_room`,
+      arguments: [
+        tx.object(hostCapId),
+        tx.object(registryId),
+        tx.object(roomId),
+        tx.object(SUI_CLOCK_OBJECT_ID),
+      ],
+    });
+
+    // Sign and execute transaction with ephemeral key (no wallet popup!)
+    const signedTx = await tx.sign({ client: suiClient, signer: ephemeralKeypair });
+    const result = await suiClient.executeTransactionBlock({
+      transactionBlock: signedTx.bytes,
+      signature: signedTx.signature,
+      options: {
+        showEffects: true,
+        showObjectChanges: true,
+      },
+    });
+
+    const txDigest = result.digest;
+
+    // Log in DelegatedSignature for audit trail
+    await prisma.delegatedSignature.create({
+      data: {
+        sessionId: session.id,
+        action: 'end_room',
+        roomId: roomId,
+        txDigest: txDigest,
+        signature: signedTx.signature,
+      },
+    });
+
+    res.json({
+      success: true,
+      txDigest,
+      message: 'Room ended successfully',
+    });
+  } catch (error) {
+    console.error('Error ending room:', error);
+    res.status(500).json({
+      error: 'Failed to end room',
+      details: error instanceof Error ? error.message : 'Unknown error',
+    });
   }
 });
 

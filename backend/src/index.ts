@@ -6,9 +6,23 @@ import { config } from './config';
 import { extractTokenFromHeader, verifyToken } from './lib/jwt';
 import { JWTPayload } from './types';
 import { WebSocketSignalingServer } from './services/websocket-signaling';
+import { validateEncryptionKey } from './utils/encryption';
 
 // Load environment variables
 dotenv.config();
+
+// Validate encryption key on startup
+try {
+  validateEncryptionKey(process.env.ENCRYPTION_KEY || '');
+  console.log('✅ Encryption key validated successfully');
+} catch (error) {
+  console.error('❌ ENCRYPTION_KEY validation failed:', error instanceof Error ? error.message : error);
+  console.error('');
+  console.error('Please set a valid ENCRYPTION_KEY in your .env file');
+  console.error('Generate one with: openssl rand -hex 32');
+  console.error('');
+  process.exit(1);
+}
 
 const app = express();
 const httpServer = createServer(app);
@@ -75,6 +89,7 @@ import sessionRoutes from './routes/sessions';
 import roomRoutes from './routes/rooms';
 import childWalletRoutes from './routes/childWallet';
 import signalingRoutes from './routes/signaling';
+import sealRoutes from './routes/seal';
 
 // Routes
 app.use('/api/auth', authRoutes);
@@ -82,6 +97,7 @@ app.use('/api/sessions', sessionRoutes);
 app.use('/api/rooms', roomRoutes);
 app.use('/api/child-wallet', childWalletRoutes);
 app.use('/api/signaling', signalingRoutes);
+app.use('/api/seal', sealRoutes);
 
 // Dummy API endpoint for testing
 app.get('/api/dummy', (req: Request, res: Response) => {

@@ -81,7 +81,7 @@ function RoomDetailPageContent() {
 
     const formatDate = (timestamp: string) => {
         if (!timestamp || timestamp === "0") return 'Not started';
-        const date = new Date(timestamp);
+        const date = new Date(Number(timestamp));
         return date.toLocaleString('vn-VN', {
             year: 'numeric',
             month: 'short',
@@ -308,7 +308,7 @@ function RoomDetailPageContent() {
                                 />
                                 <button
                                     onClick={() => copyToClipboard(roomId)}
-                                    className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                                    className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     {copied ? <CheckIcon width="16" height="16" /> : <CopyIcon width="16" height="16" />}
                                 </button>
@@ -327,7 +327,7 @@ function RoomDetailPageContent() {
                                 />
                                 <button
                                     onClick={() => copyToClipboard(inviteLink)}
-                                    className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                                    className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     {copied ? <CheckIcon width="16" height="16" /> : <CopyIcon width="16" height="16" />}
                                 </button>

@@ -5,7 +5,7 @@ import { uploadToWalrus } from '@/lib/walrus';
 export interface UseMeetingControlsProps {
   roomId: string;
   participantId: string | undefined;
-  pcRef: React.MutableRefObject<RTCPeerConnection | null>;
+  pcRef: React.MutableRefObject<RTCPeerConnection | null> | null;
   localStream: MediaStream | null;
   setLocalStream: (stream: MediaStream | null) => void;
   remoteStream: MediaStream | null;
@@ -55,7 +55,7 @@ export function useMeetingControls({
 
   // Helper to renegotiate connection
   const renegotiateConnection = useCallback(async () => {
-    const pc = pcRef.current;
+    const pc = pcRef?.current;
     if (!pc || !participantId) return;
     if (pc.signalingState === 'closed' || pc.connectionState === 'closed') return;
 
@@ -92,7 +92,7 @@ export function useMeetingControls({
 
   const toggleVideo = useCallback(async () => {
     const enabled = !videoEnabled;
-    const pc = pcRef.current;
+    const pc = pcRef?.current;
 
     // Confirm before enabling camera
     if (enabled) {
@@ -151,9 +151,21 @@ export function useMeetingControls({
             newStream.getTracks().forEach(t => {
               if (t !== newVideoTrack) t.stop();
             });
-          } catch (err) {
+          } catch (err: any) {
             console.error('Failed to get video track:', err);
             setVideoEnabled(false);
+
+            // Provide user-friendly error messages
+            let errorMessage = 'Failed to access camera.';
+            if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+              errorMessage = 'Camera access denied. Please:\n\n1. Click the camera icon in your browser address bar\n2. Allow camera access for this site\n3. Reload the page and try again';
+            } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+              errorMessage = 'No camera found. Please connect a camera and try again.';
+            } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+              errorMessage = 'Camera is already in use by another application. Please close other apps using the camera and try again.';
+            }
+
+            alert(errorMessage);
             return;
           }
         } else {
@@ -220,7 +232,7 @@ export function useMeetingControls({
         } catch { }
       }
       setShareStream(displayStream);
-      const pc = pcRef.current;
+      const pc = pcRef?.current;
       if (pc) {
         displayStream.getTracks().forEach((t) => pc.addTrack(t, displayStream));
       }

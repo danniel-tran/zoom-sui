@@ -620,7 +620,6 @@ Valid scopes for ephemeral keys:
 - `room:revoke` - Revoke guest access
 - `room:join` - Join rooms
 - `room:leave` - Leave rooms
-- `poap:mint` - Mint POAP NFTs
 
 ## 6. Security Considerations
 
@@ -780,7 +779,6 @@ ENCRYPTION_KEY=32-byte-hex-key  # Generate with: openssl rand -hex 32
 - [ ] Rate limiting for API endpoints
 - [ ] WebSocket support for real-time updates
 - [ ] Room recording management
-- [ ] POAP minting integration
 - [ ] Analytics and metrics endpoints
 
 ### 10.2 Technical Debt

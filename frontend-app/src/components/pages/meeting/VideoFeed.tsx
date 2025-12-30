@@ -72,10 +72,14 @@ const VideoFeed: React.FC<Props> = ({
       // Initial state check
       updateTrackState();
 
-      // Play the video
-      video.play().catch((err) => {
-        console.error('Error playing video:', err);
-      });
+      // Note: autoPlay attribute on video element handles playback
+      // Manual play() not needed and may violate browser autoplay policies
+
+      // Poll track state every 500ms to detect enabled/disabled changes
+      // This is needed because track.enabled changes don't trigger events
+      const pollInterval = setInterval(() => {
+        updateTrackState();
+      }, 500);
 
       // Handle track additions (when tracks are added to existing stream)
       const handleAddTrack = (event: MediaStreamTrackEvent) => {
@@ -85,10 +89,7 @@ const VideoFeed: React.FC<Props> = ({
           video.srcObject = stream;
         }
         updateTrackState();
-        // Try to play again in case video track was just added
-        video.play().catch((err) => {
-          console.error('Error playing video after track addition:', err);
-        });
+        // autoPlay attribute handles playback automatically
       };
 
       // Handle track removals
@@ -115,6 +116,7 @@ const VideoFeed: React.FC<Props> = ({
 
       // Cleanup
       return () => {
+        clearInterval(pollInterval);
         stream.removeEventListener('addtrack', handleAddTrack);
         stream.removeEventListener('removetrack', handleRemoveTrack);
         stream.getTracks().forEach(track => {

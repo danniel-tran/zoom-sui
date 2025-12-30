@@ -23,11 +23,44 @@ interface AuthTokens {
 export function useAuth() {
   const currentAccount = useCurrentAccount();
   const { mutate: signMessage } = useSignPersonalMessage();
-  
-  const [accessToken, setAccessToken] = useState<string>('');
-  const [refreshToken, setRefreshToken] = useState<string>('');
+
+  // Initialize tokens directly from localStorage to avoid authentication flicker
+  const [accessToken, setAccessTokenState] = useState<string>(() => getAccessToken() || '');
+  const [refreshToken, setRefreshTokenState] = useState<string>(() => getRefreshToken() || '');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>('');
+
+  /**
+   * Wrapper to update accessToken in both state and localStorage
+   * Always stores all tokens together to keep them in sync
+   */
+  const setAccessToken = useCallback((token: string, expiresAt?: string) => {
+    setAccessTokenState(token);
+    if (token) {
+      // Store all tokens together atomically
+      storeTokens({
+        accessToken: token,
+        refreshToken: getRefreshToken() || refreshToken,
+        expiresAt: expiresAt || localStorage.getItem('tokenExpiresAt') || new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      });
+    }
+  }, [refreshToken]);
+
+  /**
+   * Wrapper to update refreshToken in both state and localStorage
+   * Always stores all tokens together to keep them in sync
+   */
+  const setRefreshToken = useCallback((token: string, expiresAt?: string) => {
+    setRefreshTokenState(token);
+    if (token) {
+      // Store all tokens together atomically
+      storeTokens({
+        accessToken: getAccessToken() || accessToken,
+        refreshToken: token,
+        expiresAt: expiresAt || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      });
+    }
+  }, [accessToken]);
 
   /**
    * Step 1: Request nonce from backend
@@ -96,15 +129,9 @@ export function useAuth() {
 
       const data = await response.json();
 
+      // Store tokens (setAccessToken and setRefreshToken automatically sync to localStorage)
       setAccessToken(data.accessToken);
-      setRefreshToken(data.refreshToken);
-
-      // Store tokens using centralized storage utility
-      storeTokens({
-        accessToken: data.accessToken,
-        refreshToken: data.refreshToken,
-        expiresAt: data.session.expiresAt,
-      });
+      setRefreshToken(data.refreshToken, data.session.expiresAt);
 
       return true;
     } catch (err) {
@@ -114,14 +141,14 @@ export function useAuth() {
     } finally {
       setLoading(false);
     }
-  }, [currentAccount, requestNonce, signMessage]);
+  }, [currentAccount, requestNonce, signMessage, setAccessToken, setRefreshToken]);
 
   /**
    * Logout and clear tokens
    */
   const logout = useCallback(() => {
-    setAccessToken('');
-    setRefreshToken('');
+    setAccessTokenState('');
+    setRefreshTokenState('');
     clearTokens();
   }, []);
 
@@ -151,8 +178,12 @@ export function useAuth() {
 
       const data = await response.json();
 
-      setAccessToken(data.accessToken);
-      updateAccessToken(data.accessToken);
+      // Update access token with new expiry time
+      // If backend provides expiresAt, use it; otherwise extend by 24 hours
+      const newExpiresAt = data.expiresAt || data.session?.expiresAt ||
+        new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
+      setAccessToken(data.accessToken, newExpiresAt);
 
       return true;
     } catch (err) {
@@ -160,7 +191,7 @@ export function useAuth() {
       setError(errorMsg);
       return false;
     }
-  }, [refreshToken, logout]);
+  }, [refreshToken, logout, setAccessToken]);
 
   /**
    * Check if token needs refresh and refresh if necessary
@@ -173,17 +204,20 @@ export function useAuth() {
 
   /**
    * Check if user is authenticated
+   * Check both state and localStorage to ensure we have the latest value
    */
-  const isAuthenticated = !!accessToken;
+  const isAuthenticated = Boolean(accessToken || getAccessToken());
 
-  // Restore tokens from localStorage on mount
+  // Check and refresh token on mount if needed
   useEffect(() => {
-    const storedAccessToken = getAccessToken();
-    const storedRefreshToken = getRefreshToken();
-
-    if (storedAccessToken) setAccessToken(storedAccessToken);
-    if (storedRefreshToken) setRefreshToken(storedRefreshToken);
-  }, []);
+    // Read from localStorage to ensure we have the latest token
+    const storedToken = getAccessToken();
+    if (storedToken && isTokenExpired(5)) {
+      // Token is expired or about to expire, refresh it
+      refreshAccessToken();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Run only once on mount
 
   // Auto-refresh token periodically
   useEffect(() => {

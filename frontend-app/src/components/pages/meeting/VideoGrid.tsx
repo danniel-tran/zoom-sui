@@ -125,17 +125,20 @@ export default function VideoGrid({
   // Remote participants first, local "You" at the end (bottom-right)
   const remoteParticipants = remotePeersList.map(([peerId, peerInfo]) => ({
     id: peerId,
-    isLocal: false,
+    isLocal: false as const,
     peerInfo,
   }));
 
   const localParticipant = {
     id: 'you',
-    isLocal: true,
+    isLocal: true as const,
   };
 
   // Combine: remote first, then local (appears bottom-right in grid)
-  const allParticipants = [...remoteParticipants, localParticipant];
+  const allParticipants: Array<
+    | { id: string; isLocal: true }
+    | { id: string; isLocal: false; peerInfo: PeerInfo }
+  > = [...remoteParticipants, localParticipant];
 
   return (
     <div className={`grid gap-4 ${gridCols}`}>

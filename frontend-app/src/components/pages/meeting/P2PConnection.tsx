@@ -193,19 +193,19 @@ export default function P2PConnection({
         // Only request media if at least one is enabled
         if (constraints.audio || constraints.video) {
           const stream = await navigator.mediaDevices.getUserMedia(constraints);
-          onLocalStream(stream);
-          const pc = pcRef.current;
-          if (pc) {
-            stream.getTracks().forEach((t) => pc.addTrack(t, stream));
-          }
-          stream.getTracks().forEach((t) => {
-            t.onended = () => {
-              const ms = new MediaStream(stream.getTracks().filter((tr) => tr.readyState !== "ended"));
-              onLocalStream(ms);
-            };
-            t.onmute = () => onLocalStream(stream);
-            t.onunmute = () => onLocalStream(stream);
-          });
+        onLocalStream(stream);
+        const pc = pcRef.current;
+        if (pc) {
+          stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+        }
+        stream.getTracks().forEach((t) => {
+          t.onended = () => {
+            const ms = new MediaStream(stream.getTracks().filter((tr) => tr.readyState !== "ended"));
+            onLocalStream(ms);
+          };
+          t.onmute = () => onLocalStream(stream);
+          t.onunmute = () => onLocalStream(stream);
+        });
         }
 
         onParticipants([

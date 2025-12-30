@@ -19,7 +19,7 @@ export interface UseMediaPermissionsResult {
 export interface UseMediaPermissionsProps {
   localStream: MediaStream | null;
   setLocalStream: (stream: MediaStream | null) => void;
-  pcRef: React.MutableRefObject<RTCPeerConnection | null>;
+  pcRef: React.MutableRefObject<RTCPeerConnection | null> | null;
   setAudioEnabled: (enabled: boolean) => void;
   setVideoEnabled: (enabled: boolean) => void;
 }
@@ -103,15 +103,15 @@ export function useMediaPermissions({
       }
 
       // Add tracks to peer connection if it exists
-      if (pcRef.current) {
+      if (pcRef?.current) {
         if (requestAudio) {
           const audioTrack = (localStream || stream).getAudioTracks()[0];
           if (audioTrack) {
-            const sender = pcRef.current.getSenders().find(s => s.track?.kind === 'audio');
+            const sender = pcRef?.current.getSenders().find(s => s.track?.kind === 'audio');
             if (sender) {
               sender.replaceTrack(audioTrack);
             } else {
-              pcRef.current.addTrack(audioTrack, localStream || stream);
+              pcRef?.current.addTrack(audioTrack, localStream || stream);
             }
           }
         }
@@ -119,11 +119,11 @@ export function useMediaPermissions({
         if (requestVideo) {
           const videoTrack = (localStream || stream).getVideoTracks()[0];
           if (videoTrack) {
-            const sender = pcRef.current.getSenders().find(s => s.track?.kind === 'video');
+            const sender = pcRef?.current.getSenders().find(s => s.track?.kind === 'video');
             if (sender) {
               sender.replaceTrack(videoTrack);
             } else {
-              pcRef.current.addTrack(videoTrack, localStream || stream);
+              pcRef?.current.addTrack(videoTrack, localStream || stream);
             }
           }
         }
